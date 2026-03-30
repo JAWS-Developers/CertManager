@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useCallback } from 'react';
+import { FC, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createService, fetchService, updateService, checkPaths } from '../../api/services.api';
 import { DomainsInput } from '../../components/DomainsInput/DomainsInput';
@@ -13,9 +13,22 @@ const EMPTY_FORM: ServiceFormData = {
   cert_path: '',
   webroot_path: '',
   restart_command: '',
-  verification_method: 'http',
+  verification_method: 'email',
   verification_email: '',
 };
+
+/**
+ * Extract the registrable root domain (last two dot-separated parts).
+ * Examples:
+ *   example.com        → example.com
+ *   www.example.com    → example.com
+ *   sub.app.example.com → example.com
+ */
+function rootDomain(domain: string): string {
+  const clean = domain.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+  const parts = clean.split('.');
+  return parts.length <= 2 ? clean : parts.slice(-2).join('.');
+}
 
 // Statuses for a path field: idle | checking | ok | warn | error
 type PathStatus = {
@@ -76,6 +89,10 @@ export const ServiceFormScreen: FC = () => {
   const [certPathStatus, setCertPathStatus] = useState<PathStatus>(IDLE);
   const [webrootPathStatus, setWebrootPathStatus] = useState<PathStatus>(IDLE);
 
+  // Track the last email value that was set automatically so we know if the
+  // user has overridden it with something custom.
+  const autoDerivedEmailRef = useRef('');
+
   useEffect(() => {
     if (!isEdit || !id) return;
     fetchService(id)
@@ -101,6 +118,23 @@ export const ServiceFormScreen: FC = () => {
     // navigate and notify are stable refs — excluded intentionally
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isEdit]);
+
+  // Auto-derive webmaster@<root-domain> whenever the first domain changes.
+  // Only overwrites the email if it is empty or still matches the previously
+  // auto-derived value (i.e. the user has not manually customised it).
+  useEffect(() => {
+    if (isEdit) return; // Don't auto-override when editing an existing service
+    if (form.domains.length === 0) return;
+    const derived = `webmaster@${rootDomain(form.domains[0])}`;
+    setForm((prev) => {
+      if (prev.verification_email === '' || prev.verification_email === autoDerivedEmailRef.current) {
+        autoDerivedEmailRef.current = derived;
+        return { ...prev, verification_email: derived };
+      }
+      return prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.domains, isEdit]);
 
   /**
    * Call the backend validate_paths action and update the status badges.
@@ -299,7 +333,7 @@ export const ServiceFormScreen: FC = () => {
           <div className="form-group">
             <label>Verification Method *</label>
             <div className="radio-group">
-              {(['http', 'email'] as VerificationMethod[]).map((method) => (
+              {(['email', 'http'] as VerificationMethod[]).map((method) => (
                 <label key={method} className={`radio-option${form.verification_method === method ? ' selected' : ''}`}>
                   <input
                     type="radio"
@@ -309,15 +343,15 @@ export const ServiceFormScreen: FC = () => {
                     onChange={() => set('verification_method', method)}
                   />
                   <div className="radio-content">
-                    {method === 'http' ? (
+                    {method === 'email' ? (
                       <>
-                        <strong>HTTP File</strong>
-                        <span>Automatically creates a validation file in your webroot</span>
+                        <strong>Email</strong>
+                        <span>ZeroSSL sends a verification email to webmaster@ at your domain</span>
                       </>
                     ) : (
                       <>
-                        <strong>Email</strong>
-                        <span>ZeroSSL sends a verification email to an address at your domain</span>
+                        <strong>HTTP File</strong>
+                        <span>Automatically creates a validation file in your webroot</span>
                       </>
                     )}
                   </div>
@@ -325,6 +359,24 @@ export const ServiceFormScreen: FC = () => {
               ))}
             </div>
           </div>
+
+          {form.verification_method === 'email' && (
+            <div className="form-group">
+              <label htmlFor="verification_email">Verification Email *</label>
+              <input
+                id="verification_email"
+                type="email"
+                value={form.verification_email}
+                onChange={(e) => set('verification_email', e.target.value)}
+                placeholder="webmaster@example.com"
+              />
+              <span className="field-hint">
+                Auto-filled as webmaster@&lt;root-domain&gt;. For subdomains (e.g. sub.example.com) the email is always webmaster@example.com.
+                Must be one of: admin@, administrator@, webmaster@, hostmaster@ or postmaster@.
+              </span>
+              {errors.verification_email && <span className="field-error">{errors.verification_email}</span>}
+            </div>
+          )}
 
           {form.verification_method === 'http' && (
             <div className="form-group">
@@ -345,23 +397,6 @@ export const ServiceFormScreen: FC = () => {
                 Document root of the web server (the validation file will be created at {'{webroot}'}/.well-known/pki-validation/)
               </span>
               {errors.webroot_path && <span className="field-error">{errors.webroot_path}</span>}
-            </div>
-          )}
-
-          {form.verification_method === 'email' && (
-            <div className="form-group">
-              <label htmlFor="verification_email">Verification Email *</label>
-              <input
-                id="verification_email"
-                type="email"
-                value={form.verification_email}
-                onChange={(e) => set('verification_email', e.target.value)}
-                placeholder="admin@example.com"
-              />
-              <span className="field-hint">
-                Must be admin@, administrator@, webmaster@, hostmaster@ or postmaster@ at your domain
-              </span>
-              {errors.verification_email && <span className="field-error">{errors.verification_email}</span>}
             </div>
           )}
         </div>

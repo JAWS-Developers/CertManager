@@ -1,0 +1,197 @@
+<?php
+
+class CertManager
+{
+    /**
+     * Generate a 2048-bit RSA private key and return it as a PEM string.
+     */
+    public function generatePrivateKey(): string
+    {
+        $privKey = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        if ($privKey === false) {
+            throw new RuntimeException('Failed to generate private key: ' . openssl_error_string());
+        }
+        openssl_pkey_export($privKey, $pem);
+        return $pem;
+    }
+
+    /**
+     * Generate a Certificate Signing Request (CSR) for the given domains.
+     *
+     * @param string $privateKeyPem PEM-encoded private key.
+     * @param array  $domains       List of domain names (first is used as CN).
+     * @return string PEM-encoded CSR.
+     */
+    public function generateCSR(string $privateKeyPem, array $domains): string
+    {
+        if (empty($domains)) {
+            throw new InvalidArgumentException('At least one domain is required');
+        }
+
+        $primaryDomain = $domains[0];
+
+        $dn = [
+            'commonName'         => $primaryDomain,
+            'organizationName'   => 'CertManager',
+            'countryName'        => 'US',
+        ];
+
+        $privKey = openssl_pkey_get_private($privateKeyPem);
+        if ($privKey === false) {
+            throw new RuntimeException('Invalid private key');
+        }
+
+        // Build SAN config for multiple domains
+        $sanList = implode(',', array_map(fn($d) => "DNS:{$d}", $domains));
+        $configPath = $this->buildOpenSSLConfig($sanList);
+
+        $csrOptions = [];
+        if ($configPath) {
+            $csrOptions['config'] = $configPath;
+        }
+
+        $csr = openssl_csr_new($dn, $privKey, $csrOptions);
+        if ($csr === false) {
+            $this->cleanupTmpConfig($configPath);
+            throw new RuntimeException('Failed to generate CSR: ' . openssl_error_string());
+        }
+
+        openssl_csr_export($csr, $csrPem);
+        $this->cleanupTmpConfig($configPath);
+        return $csrPem;
+    }
+
+    /**
+     * Write the certificate files to the configured path directory.
+     *
+     * Creates:
+     *   {cert_path}/fullchain.pem  – certificate + CA bundle
+     *   {cert_path}/privkey.key    – private key
+     *   {cert_path}/cert.pem       – leaf certificate only
+     *   {cert_path}/chain.pem      – CA bundle only
+     *
+     * @param string $certPem        Leaf certificate PEM.
+     * @param string $caBundlePem    CA bundle PEM.
+     * @param string $privateKeyPem  Private key PEM.
+     * @param string $certPath       Target directory path.
+     */
+    public function installCertificate(
+        string $certPem,
+        string $caBundlePem,
+        string $privateKeyPem,
+        string $certPath
+    ): void {
+        if (!is_dir($certPath)) {
+            if (!mkdir($certPath, 0755, true)) {
+                throw new RuntimeException("Cannot create directory: {$certPath}");
+            }
+        }
+
+        $certPath = rtrim($certPath, '/');
+
+        $fullChain = $certPem . "\n" . $caBundlePem;
+
+        $this->writeFile("{$certPath}/fullchain.pem", $fullChain, 0644);
+        $this->writeFile("{$certPath}/privkey.key", $privateKeyPem, 0600);
+        $this->writeFile("{$certPath}/cert.pem", $certPem, 0644);
+        $this->writeFile("{$certPath}/chain.pem", $caBundlePem, 0644);
+    }
+
+    /**
+     * Create the HTTP file-based validation file at the web root.
+     *
+     * ZeroSSL expects: http://{domain}/.well-known/pki-validation/{filename}
+     *
+     * @param string $webrootPath       The document root of the web server.
+     * @param string $validationFilename The filename provided by ZeroSSL.
+     * @param string $validationContent  The content provided by ZeroSSL.
+     */
+    public function createValidationFile(
+        string $webrootPath,
+        string $validationFilename,
+        string $validationContent
+    ): void {
+        $validationDir = rtrim($webrootPath, '/') . '/.well-known/pki-validation';
+        if (!is_dir($validationDir)) {
+            if (!mkdir($validationDir, 0755, true)) {
+                throw new RuntimeException("Cannot create validation directory: {$validationDir}");
+            }
+        }
+        $this->writeFile("{$validationDir}/{$validationFilename}", $validationContent, 0644);
+    }
+
+    /**
+     * Remove the HTTP validation file after certificate issuance.
+     */
+    public function removeValidationFile(string $webrootPath, string $validationFilename): void
+    {
+        $filePath = rtrim($webrootPath, '/') . '/.well-known/pki-validation/' . $validationFilename;
+        if (file_exists($filePath)) {
+            unlink($filePath);
+        }
+    }
+
+    /**
+     * Execute a shell command safely and return its output and exit code.
+     *
+     * @return array{output: string, exit_code: int}
+     */
+    public function executeCommand(string $command): array
+    {
+        if (empty(trim($command))) {
+            return ['output' => '', 'exit_code' => 0];
+        }
+
+        $output    = [];
+        $exitCode  = 0;
+        exec(escapeshellcmd($command) . ' 2>&1', $output, $exitCode);
+
+        return [
+            'output'    => implode("\n", $output),
+            'exit_code' => $exitCode,
+        ];
+    }
+
+    // ------------------------------------------------------------------
+    // Private helpers
+    // ------------------------------------------------------------------
+
+    private function writeFile(string $path, string $content, int $mode): void
+    {
+        if (file_put_contents($path, $content) === false) {
+            throw new RuntimeException("Cannot write file: {$path}");
+        }
+        chmod($path, $mode);
+    }
+
+    private function buildOpenSSLConfig(string $sanList): ?string
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'openssl_');
+        if ($tmpFile === false) {
+            return null;
+        }
+        $config = <<<EOT
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+
+[v3_req]
+subjectAltName = {$sanList}
+EOT;
+        file_put_contents($tmpFile, $config);
+        return $tmpFile;
+    }
+
+    private function cleanupTmpConfig(?string $path): void
+    {
+        if ($path && file_exists($path)) {
+            unlink($path);
+        }
+    }
+}

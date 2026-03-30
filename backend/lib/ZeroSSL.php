@@ -40,21 +40,28 @@ class ZeroSSL
      *                                      multi-domain certs:
      *                                      validation_email[domain.com]=email@host
      */
-    public function initiateVerification(string $certId, string $method, string|array $validationEmail = ''): array
+    public function initiateVerification(string $certId, string $method, string|array $validationEmail = '', array $domains = []): array
     {
         $payload = ['validation_method' => $method];
 
         if ($method === 'EMAIL') {
-            if (is_array($validationEmail) && !empty($validationEmail)) {
-                // Per-domain format required by ZeroSSL API for multi-domain certs.
-                // Keys contain literal brackets: validation_email[domain.com]=email
+            // Se è una singola stringa, applicala a tutti i domini
+            if (is_string($validationEmail)) {
+                foreach ($domains as $domain) {
+                    $payload["validation_email[{$domain}]"] = $validationEmail;
+                }
+            } elseif (is_array($validationEmail)) {
+                // Se è un array associativo, usalo così com'è
                 foreach ($validationEmail as $domain => $email) {
                     $payload["validation_email[{$domain}]"] = $email;
                 }
-            } elseif (is_string($validationEmail) && $validationEmail !== '') {
-                $payload['validation_email'] = $validationEmail;
             }
         }
+
+        // DEBUG sicuro (non interferisce col body)
+        echo "Payload per POST:\n";
+        print_r($payload);
+        echo "\n\n";
 
         return $this->request('POST', "/certificates/{$certId}/challenges", $payload);
     }
@@ -132,6 +139,22 @@ class ZeroSSL
                 curl_setopt($ch, CURLOPT_HTTPHEADER, [
                     'Content-Type: application/x-www-form-urlencoded',
                 ]);
+
+                $body = implode('&', $parts);
+
+                echo "URL:\n";
+                echo $url . "\n\n";
+
+                echo "HEADERS:\n";
+                print_r([
+                    'Content-Type: application/x-www-form-urlencoded'
+                ]);
+
+                echo "\nBODY (raw):\n";
+                echo $body . "\n\n";
+
+                echo "BODY (decoded):\n";
+                echo urldecode($body);
                 break;
             case 'DELETE':
                 curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');

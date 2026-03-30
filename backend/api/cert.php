@@ -188,7 +188,7 @@ function actionRequest(array $service, CertManager $certManager): void
                 return;
             }
 
-            $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $email);
+            $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $email, $domains);
 
             // Check whether ZeroSSL reported an error
             if (!empty($challenge['error'])) {

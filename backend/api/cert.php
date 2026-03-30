@@ -178,10 +178,9 @@ function actionRequest(array $service, CertManager $certManager): void
             $result = handleHttpValidation($service, $certId, $validationDetails, $certManager, $zerossl);
             echo json_encode($result);
         } else {
-            // EMAIL verification — build a per-domain email map as required by the
-            // ZeroSSL API (validation_email[domain.com]=email for each domain).
-            $email   = $service['verification_email'] ?? '';
-            $domains = $service['domains'] ?? [];
+            // EMAIL verification — the ZeroSSL challenges endpoint accepts a flat
+            // validation_email=email parameter (single address for all domains).
+            $email = $service['verification_email'] ?? '';
 
             if (empty($email)) {
                 http_response_code(400);
@@ -189,12 +188,7 @@ function actionRequest(array $service, CertManager $certManager): void
                 return;
             }
 
-            $emailsPerDomain = [];
-            foreach ($domains as $domain) {
-                $emailsPerDomain[$domain] = $email;
-            }
-
-            $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $emailsPerDomain);
+            $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $email);
 
             // Check whether ZeroSSL reported an error
             if (!empty($challenge['error'])) {

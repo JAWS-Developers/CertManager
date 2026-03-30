@@ -39,6 +39,19 @@ export async function renewCertificate(serviceId: string): Promise<CertActionRes
   return res.json();
 }
 
+/**
+ * Poll the configured IMAP inbox for ZeroSSL verification emails and
+ * automatically click the verification links for this service's certificate.
+ */
+export async function pollEmailVerification(serviceId: string): Promise<CertActionResult> {
+  const res = await fetch(`${API_BASE}/cert.php`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ action: 'poll_email', service_id: serviceId }),
+  });
+  return res.json();
+}
+
 export async function getCertStatus(serviceId: string): Promise<CertActionResult & { cert?: unknown }> {
   const res = await fetch(`${API_BASE}/cert.php?action=status&service_id=${encodeURIComponent(serviceId)}`);
   return res.json();
@@ -47,10 +60,10 @@ export async function getCertStatus(serviceId: string): Promise<CertActionResult
 export async function fetchSettings(): Promise<Settings> {
   const res = await fetch(`${API_BASE}/settings.php`);
   const data = await res.json();
-  return data.settings ?? { has_api_key: false };
+  return data.settings ?? { has_api_key: false, has_imap_config: false };
 }
 
-export async function saveSettings(settings: { zerossl_api_key: string }): Promise<void> {
+export async function saveSettings(settings: Record<string, string | number>): Promise<void> {
   const res = await fetch(`${API_BASE}/settings.php`, {
     method: 'POST',
     headers,
@@ -58,4 +71,23 @@ export async function saveSettings(settings: { zerossl_api_key: string }): Promi
   });
   const data = await res.json();
   if (!data.success) throw new Error(data.error ?? 'Failed to save settings');
+}
+
+export async function testImapConnection(
+  imapSettings: Partial<{
+    imap_host: string;
+    imap_port: number;
+    imap_encryption: string;
+    imap_username: string;
+    imap_password: string;
+  }>
+): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/settings.php`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ action: 'test_imap', ...imapSettings }),
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error ?? 'Connection test failed');
+  return data;
 }

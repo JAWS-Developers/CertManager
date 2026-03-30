@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/Services.php';
 require_once __DIR__ . '/../lib/ZeroSSL.php';
 require_once __DIR__ . '/../lib/CertManager.php';
+require_once __DIR__ . '/../lib/ImapMailbox.php';
 
 $serviceStore = new Services(SERVICES_FILE);
 $certManager  = new CertManager();
@@ -112,6 +113,9 @@ function handlePost(array $input): void
             break;
         case 'renew':
             actionRenew($service, $certManager);
+            break;
+        case 'poll_email':
+            actionPollEmail($service);
             break;
         default:
             http_response_code(400);
@@ -345,6 +349,71 @@ function actionRenew(array $service, CertManager $certManager): void
     // Reload updated service and request a new one
     $updatedService = $serviceStore->getById($service['id']);
     actionRequest($updatedService, $certManager);
+}
+
+// ---------------------------------------------------------------------------
+
+function actionPollEmail(array $service): void
+{
+    global $serviceStore;
+
+    $settingsRaw = @file_get_contents(SETTINGS_FILE);
+    $settings    = json_decode($settingsRaw ?: '{}', true) ?? [];
+
+    $host       = $settings['imap_host']       ?? '';
+    $port       = (int) ($settings['imap_port'] ?? 993);
+    $encryption = $settings['imap_encryption'] ?? 'ssl';
+    $username   = $settings['imap_username']   ?? '';
+    $password   = $settings['imap_password']   ?? '';
+
+    if (empty($host) || empty($username) || empty($password)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error'   => 'IMAP mailbox is not configured. Go to Settings to set up the verification inbox.',
+        ]);
+        return;
+    }
+
+    try {
+        $imap    = new ImapMailbox($host, $port, $encryption, $username, $password);
+        $results = $imap->processVerificationEmails();
+
+        // Re-check cert status on ZeroSSL after clicking any links
+        $certId     = $service['cert_id'] ?? null;
+        $certStatus = $service['cert_status'];
+        $certExpiry = $service['cert_expiry'] ?? null;
+
+        if ($certId) {
+            $zerossl    = getZeroSSL();
+            $cert       = $zerossl->getCertificate($certId);
+            $certStatus = mapZeroSSLStatus($cert['status'] ?? '');
+            $certExpiry = $cert['expires'] ?? null;
+            $serviceStore->update($service['id'], [
+                'cert_status' => $certStatus,
+                'cert_expiry' => $certExpiry,
+            ]);
+        }
+
+        $found   = count($results);
+        $clicked = count(array_filter($results, fn($r) => $r['success']));
+
+        $message = $found > 0
+            ? "Processed {$clicked}/{$found} verification link(s). Certificate status: {$certStatus}."
+            : 'No new ZeroSSL verification emails found in the inbox. The email may not have arrived yet — try again in a moment.';
+
+        echo json_encode([
+            'success'       => true,
+            'message'       => $message,
+            'cert_status'   => $certStatus,
+            'links_found'   => $found,
+            'links_clicked' => $clicked,
+            'details'       => $results,
+        ]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
 }
 
 // ---------------------------------------------------------------------------

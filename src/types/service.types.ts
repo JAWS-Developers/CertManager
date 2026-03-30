@@ -53,6 +53,12 @@ export interface Settings {
   zerossl_api_key?: string;
   zerossl_api_key_masked?: string;
   has_api_key: boolean;
+  has_imap_config: boolean;
+  imap_host?: string;
+  imap_port?: number;
+  imap_encryption?: string;
+  imap_username?: string;
+  imap_password_masked?: string;
 }
 
 export interface PathCheckResult {

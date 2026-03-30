@@ -47,13 +47,12 @@ class ZeroSSL
             // The /challenges endpoint only accepts a flat validation_email=email
             // parameter — per-domain bracket keys cause missing_validation_email.
             if (is_string($validationEmail) && $validationEmail !== '') {
-                $payload['validation_email'] = $validationEmail;
+                $payload['validation_email'] = implode(',', array_fill(0, count($domains), $validationEmail));
             } elseif (is_array($validationEmail) && !empty($validationEmail)) {
                 // Flat: use the first (or only) email value from the map
                 $payload['validation_email'] = reset($validationEmail);
             }
         }
-
         return $this->request('POST', "/certificates/{$certId}/challenges", $payload);
     }
 

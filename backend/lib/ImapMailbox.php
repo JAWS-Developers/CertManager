@@ -89,7 +89,7 @@ class ImapMailbox
         if (!function_exists('imap_open')) {
             throw new RuntimeException(
                 'PHP IMAP extension is not available. ' .
-                'Install php-imap (e.g. apt install php-imap) and restart PHP.'
+                    'Install php-imap (e.g. apt install php-imap) and restart PHP.'
             );
         }
     }
@@ -141,11 +141,8 @@ class ImapMailbox
     {
         // Search for unseen messages whose sender contains "trust-provider.com"
         // (ZeroSSL's Comodo/Sectigo backend) OR "zerossl.com" as a fallback.
-        $uids = @imap_search(
-            $connection,
-            'UNSEEN OR FROM "trust-provider.com" FROM "zerossl.com"',
-            SE_UID
-        );
+        $uids = @imap_search($connection, 'FROM "noreply@trust-provider.com"', SE_UID);
+
 
         if (empty($uids)) {
             return [];
@@ -314,7 +311,8 @@ class ImapMailbox
         }
 
         $host = parse_url($url, PHP_URL_HOST);
-        if (!$host
+        if (
+            !$host
             || (!str_ends_with($host, 'zerossl.com') && !str_ends_with($host, 'trust-provider.com'))
         ) {
             return ['success' => false, 'message' => "URL does not belong to an expected domain: {$url}"];

@@ -33,35 +33,26 @@ class ZeroSSL
      *
      * @param string       $certId          ZeroSSL certificate ID.
      * @param string       $method          EMAIL | HTTP_CSR_HASH | CNAME_CSR_HASH
-     * @param string|array $validationEmail For EMAIL method: either a single email
-     *                                      address (applied to every domain) or an
-     *                                      associative array of [domain => email].
-     *                                      ZeroSSL requires per-domain keys for
-     *                                      multi-domain certs:
-     *                                      validation_email[domain.com]=email@host
+     * @param string|array $validationEmail For EMAIL method: a single email address,
+     *                                      or an associative array [domain => email]
+     *                                      (only the first value is used; the
+     *                                      /challenges endpoint requires a flat
+     *                                      validation_email=email parameter).
      */
     public function initiateVerification(string $certId, string $method, string|array $validationEmail = '', array $domains = []): array
     {
         $payload = ['validation_method' => $method];
 
         if ($method === 'EMAIL') {
-            // Se è una singola stringa, applicala a tutti i domini
-            if (is_string($validationEmail)) {
-                foreach ($domains as $domain) {
-                    $payload["validation_email[{$domain}]"] = $validationEmail;
-                }
-            } elseif (is_array($validationEmail)) {
-                // Se è un array associativo, usalo così com'è
-                foreach ($validationEmail as $domain => $email) {
-                    $payload["validation_email[{$domain}]"] = $email;
-                }
+            // The /challenges endpoint only accepts a flat validation_email=email
+            // parameter — per-domain bracket keys cause missing_validation_email.
+            if (is_string($validationEmail) && $validationEmail !== '') {
+                $payload['validation_email'] = $validationEmail;
+            } elseif (is_array($validationEmail) && !empty($validationEmail)) {
+                // Flat: use the first (or only) email value from the map
+                $payload['validation_email'] = reset($validationEmail);
             }
         }
-
-        // DEBUG sicuro (non interferisce col body)
-        echo "Payload per POST:\n";
-        print_r($payload);
-        echo "\n\n";
 
         return $this->request('POST', "/certificates/{$certId}/challenges", $payload);
     }
@@ -128,33 +119,14 @@ class ZeroSSL
         switch (strtoupper($method)) {
             case 'POST':
                 curl_setopt($ch, CURLOPT_POST, true);
-                // Build the form body manually to preserve literal bracket characters
-                // in keys (e.g. validation_email[domain.com]).  http_build_query()
-                // would percent-encode the brackets which some servers reject.
                 $parts = [];
                 foreach ($payload as $key => $value) {
-                    $parts[] = $key . '=' . urlencode((string) $value);
+                    $parts[] = urlencode($key) . '=' . urlencode((string) $value);
                 }
                 curl_setopt($ch, CURLOPT_POSTFIELDS, implode('&', $parts));
                 curl_setopt($ch, CURLOPT_HTTPHEADER, [
                     'Content-Type: application/x-www-form-urlencoded',
                 ]);
-
-                $body = implode('&', $parts);
-
-                echo "URL:\n";
-                echo $url . "\n\n";
-
-                echo "HEADERS:\n";
-                print_r([
-                    'Content-Type: application/x-www-form-urlencoded'
-                ]);
-
-                echo "\nBODY (raw):\n";
-                echo $body . "\n\n";
-
-                echo "BODY (decoded):\n";
-                echo urldecode($body);
                 break;
             case 'DELETE':
                 curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');

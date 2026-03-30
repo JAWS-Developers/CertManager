@@ -140,7 +140,12 @@ class ImapMailbox
     private function findAndProcessLinks($connection): array
     {
         // Search for unseen messages whose sender contains "trust-provider.com"
-        $uids = @imap_search($connection, 'FROM "trust-provider.com" UNSEEN', SE_UID);
+        // (ZeroSSL's Comodo/Sectigo backend) OR "zerossl.com" as a fallback.
+        $uids = @imap_search(
+            $connection,
+            'UNSEEN OR FROM "trust-provider.com" FROM "zerossl.com"',
+            SE_UID
+        );
 
         if (empty($uids)) {
             return [];
@@ -151,6 +156,11 @@ class ImapMailbox
         foreach ($uids as $uid) {
             $body  = $this->fetchBody($connection, $uid);
             $links = $this->extractVerificationLinks($body);
+
+            // Skip emails with no actionable verification links (don't mark as seen)
+            if (empty($links)) {
+                continue;
+            }
 
             foreach ($links as $url) {
                 $clickResult = $this->clickVerificationLink($url);
@@ -209,8 +219,15 @@ class ImapMailbox
     }
 
     /**
-     * Extract ZeroSSL verification URLs from an email body (handles both HTML
-     * href attributes and plain-text URLs).
+     * Extract ZeroSSL domain-verification URLs from an email body.
+     *
+     * ZeroSSL verification emails are sent via Comodo/Sectigo infrastructure and
+     * contain links on secure.trust-provider.com. The email has two link types:
+     *   • EnterDCVCode  — the URL we MUST click to confirm ownership
+     *   • RejectDCVCode — the URL we must NEVER click (it cancels the certificate)
+     *
+     * The method handles both the HTML part (href attributes) and the plain-text
+     * part of a multipart/alternative email.
      *
      * @return list<string>
      */
@@ -218,9 +235,10 @@ class ImapMailbox
     {
         $links = [];
 
-        // 1. Look inside HTML href attributes first
+        // 1. Extract from HTML href attributes — match EnterDCVCode links on
+        //    trust-provider.com or app.zerossl.com (future-proof).
         if (preg_match_all(
-            '/href=["\']([^"\']*app\.zerossl\.com[^"\']*)["\']/',
+            '/href=["\']([^"\']*(?:secure\.trust-provider\.com\/products\/EnterDCVCode|app\.zerossl\.com)[^"\']*)["\']/',
             $body,
             $matches
         )) {
@@ -229,9 +247,24 @@ class ImapMailbox
             }
         }
 
-        // 2. Also scan plain text (after stripping HTML tags)
+        // 2. Scan the plain-text part (after stripping HTML tags) for bare URLs.
         $plain = html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
+        // trust-provider.com EnterDCVCode links (the actual ZeroSSL email format)
+        if (preg_match_all(
+            '#https://secure\.trust-provider\.com/products/EnterDCVCode[^\s\'"<>]+#i',
+            $plain,
+            $matches
+        )) {
+            foreach ($matches[0] as $url) {
+                $url = rtrim($url, '.,;:)>"\']');
+                if (!in_array($url, $links, true)) {
+                    $links[] = $url;
+                }
+            }
+        }
+
+        // app.zerossl.com links as a fallback for any future format changes
         if (preg_match_all('#https://app\.zerossl\.com/[^\s\'"<>]+#i', $plain, $matches)) {
             foreach ($matches[0] as $url) {
                 $url = rtrim($url, '.,;:)>"\']');
@@ -241,22 +274,31 @@ class ImapMailbox
             }
         }
 
-        // Deduplicate, validate, and restrict to the expected ZeroSSL domain
+        // Deduplicate
         $links = array_unique($links);
 
+        // Validate URLs and restrict to the expected domains.
+        // NEVER include RejectDCVCode links — clicking them cancels the certificate.
         return array_values(array_filter($links, static function (string $url): bool {
             if (!filter_var($url, FILTER_VALIDATE_URL)) {
                 return false;
             }
+            // Hard reject any rejection/cancellation links
+            if (stripos($url, 'RejectDCVCode') !== false) {
+                return false;
+            }
             $host = parse_url($url, PHP_URL_HOST);
-            return $host !== false && $host !== null
-                && str_ends_with($host, 'zerossl.com');
+            if ($host === false || $host === null) {
+                return false;
+            }
+            return str_ends_with($host, 'zerossl.com')
+                || str_ends_with($host, 'trust-provider.com');
         }));
     }
 
     /**
-     * Make an HTTPS GET request to a ZeroSSL verification URL (i.e. "click" the
-     * link on behalf of the user).
+     * Make an HTTPS GET request to a ZeroSSL/trust-provider.com verification URL
+     * (i.e. "click" the EnterDCVCode link on behalf of the user).
      *
      * @return array{success: bool, message: string, http_code?: int}
      */
@@ -266,9 +308,16 @@ class ImapMailbox
             return ['success' => false, 'message' => "Invalid URL: {$url}"];
         }
 
+        // Safety guard: never click rejection/cancellation links
+        if (stripos($url, 'RejectDCVCode') !== false) {
+            return ['success' => false, 'message' => "Refused to click rejection link: {$url}"];
+        }
+
         $host = parse_url($url, PHP_URL_HOST);
-        if (!$host || !str_ends_with($host, 'zerossl.com')) {
-            return ['success' => false, 'message' => "URL does not belong to zerossl.com: {$url}"];
+        if (!$host
+            || (!str_ends_with($host, 'zerossl.com') && !str_ends_with($host, 'trust-provider.com'))
+        ) {
+            return ['success' => false, 'message' => "URL does not belong to an expected domain: {$url}"];
         }
 
         $ch = curl_init();

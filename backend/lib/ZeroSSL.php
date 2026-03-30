@@ -31,16 +31,31 @@ class ZeroSSL
     /**
      * Initiate domain validation.
      *
-     * @param string $certId          ZeroSSL certificate ID.
-     * @param string $method          EMAIL | HTTP_CSR_HASH | CNAME_CSR_HASH
-     * @param string $validationEmail Required for EMAIL method.
+     * @param string       $certId          ZeroSSL certificate ID.
+     * @param string       $method          EMAIL | HTTP_CSR_HASH | CNAME_CSR_HASH
+     * @param string|array $validationEmail For EMAIL method: either a single email
+     *                                      address (applied to every domain) or an
+     *                                      associative array of [domain => email].
+     *                                      ZeroSSL requires per-domain keys for
+     *                                      multi-domain certs:
+     *                                      validation_email[domain.com]=email@host
      */
-    public function initiateVerification(string $certId, string $method, string $validationEmail = ''): array
+    public function initiateVerification(string $certId, string $method, string|array $validationEmail = ''): array
     {
         $payload = ['validation_method' => $method];
-        if ($method === 'EMAIL' && $validationEmail !== '') {
-            $payload['validation_email'] = $validationEmail;
+
+        if ($method === 'EMAIL') {
+            if (is_array($validationEmail) && !empty($validationEmail)) {
+                // Per-domain format required by ZeroSSL API for multi-domain certs.
+                // Keys contain literal brackets: validation_email[domain.com]=email
+                foreach ($validationEmail as $domain => $email) {
+                    $payload["validation_email[{$domain}]"] = $email;
+                }
+            } elseif (is_string($validationEmail) && $validationEmail !== '') {
+                $payload['validation_email'] = $validationEmail;
+            }
         }
+
         return $this->request('POST', "/certificates/{$certId}/challenges", $payload);
     }
 
@@ -106,7 +121,14 @@ class ZeroSSL
         switch (strtoupper($method)) {
             case 'POST':
                 curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
+                // Build the form body manually to preserve literal bracket characters
+                // in keys (e.g. validation_email[domain.com]).  http_build_query()
+                // would percent-encode the brackets which some servers reject.
+                $parts = [];
+                foreach ($payload as $key => $value) {
+                    $parts[] = $key . '=' . urlencode((string) $value);
+                }
+                curl_setopt($ch, CURLOPT_POSTFIELDS, implode('&', $parts));
                 curl_setopt($ch, CURLOPT_HTTPHEADER, [
                     'Content-Type: application/x-www-form-urlencoded',
                 ]);

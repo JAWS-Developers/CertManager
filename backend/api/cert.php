@@ -178,12 +178,42 @@ function actionRequest(array $service, CertManager $certManager): void
             $result = handleHttpValidation($service, $certId, $validationDetails, $certManager, $zerossl);
             echo json_encode($result);
         } else {
-            // EMAIL verification – initiate it, user checks their inbox
-            $email     = $service['verification_email'] ?? '';
-            $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $email);
+            // EMAIL verification — build a per-domain email map as required by the
+            // ZeroSSL API (validation_email[domain.com]=email for each domain).
+            $email   = $service['verification_email'] ?? '';
+            $domains = $service['domains'] ?? [];
+
+            if (empty($email)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Verification email address is not configured for this service.']);
+                return;
+            }
+
+            $emailsPerDomain = [];
+            foreach ($domains as $domain) {
+                $emailsPerDomain[$domain] = $email;
+            }
+
+            $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $emailsPerDomain);
+
+            // Check whether ZeroSSL reported an error
+            if (!empty($challenge['error'])) {
+                $errMsg = is_array($challenge['error'])
+                    ? ($challenge['error']['type'] ?? json_encode($challenge['error']))
+                    : (string) $challenge['error'];
+                echo json_encode([
+                    'success'     => false,
+                    'error'       => "ZeroSSL challenge error: {$errMsg}",
+                    'cert_id'     => $certId,
+                    'cert_status' => 'pending_validation',
+                    'details'     => $challenge,
+                ]);
+                return;
+            }
+
             echo json_encode([
                 'success'     => true,
-                'message'     => 'Verification email sent. Please check your inbox and click the link to verify ownership.',
+                'message'     => "Verification email sent to {$email}. Click \"Auto-Verify from Inbox\" once it arrives.",
                 'cert_id'     => $certId,
                 'cert_status' => 'pending_validation',
                 'challenge'   => $challenge,
@@ -409,7 +439,6 @@ function actionPollEmail(array $service): void
             'links_found'   => $found,
             'links_clicked' => $clicked,
             'details'       => $results,
-            'resluts'       => $results,
         ]);
     } catch (Throwable $e) {
         http_response_code(500);

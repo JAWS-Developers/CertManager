@@ -26,6 +26,79 @@
   display: block;
 }
 
+/* Path label row – label + status badge side-by-side */
+.path-label-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.path-label-row label {
+  margin-bottom: 0;
+}
+
+/* Path status badges */
+.path-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.path-checking {
+  color: var(--text-muted);
+  background: rgba(100, 116, 139, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+.path-checking .spinner {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+  border-color: rgba(100,116,139,0.4);
+  border-top-color: var(--text-muted);
+}
+
+.path-ok {
+  color: var(--accent-green);
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.path-warn {
+  color: var(--accent-yellow);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.path-error {
+  color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Input border state overrides */
+input.input-ok {
+  border-color: var(--accent-green);
+}
+input.input-ok:focus {
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+
+input.input-error {
+  border-color: var(--accent-red);
+}
+input.input-error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
 .radio-group {
   display: flex;
   flex-direction: column;

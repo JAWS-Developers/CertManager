@@ -1,9 +1,9 @@
-import { FC, useState, useEffect } from 'react';
+import { FC, useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createService, fetchService, updateService } from '../../api/services.api';
+import { createService, fetchService, updateService, checkPaths } from '../../api/services.api';
 import { DomainsInput } from '../../components/DomainsInput/DomainsInput';
 import { useNotification } from '../../contexts/NotificationContext';
-import type { ServiceFormData, VerificationMethod } from '../../types/service.types';
+import type { ServiceFormData, VerificationMethod, PathCheckResult } from '../../types/service.types';
 import './ServiceFormScreen.css';
 
 const EMPTY_FORM: ServiceFormData = {
@@ -17,6 +17,51 @@ const EMPTY_FORM: ServiceFormData = {
   verification_email: '',
 };
 
+// Statuses for a path field: idle | checking | ok | warn | error
+type PathStatus = {
+  state: 'idle' | 'checking' | 'ok' | 'warn' | 'error';
+  message?: string;
+};
+
+const IDLE: PathStatus = { state: 'idle' };
+
+function statusFromResult(result: PathCheckResult | null | undefined): PathStatus {
+  if (!result) return IDLE;
+  if (!result.valid) return { state: 'error', message: result.error };
+  if (!result.exists) return { state: 'warn', message: result.note ?? 'Directory will be created automatically' };
+  return { state: 'ok', message: result.exists ? 'Directory exists and is writable' : undefined };
+}
+
+const PathStatusIcon: FC<{ status: PathStatus }> = ({ status }) => {
+  if (status.state === 'idle') return null;
+  if (status.state === 'checking') {
+    return <span className="path-status path-checking"><span className="spinner" /></span>;
+  }
+  if (status.state === 'ok') {
+    return (
+      <span className="path-status path-ok" title={status.message}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        Accessible
+      </span>
+    );
+  }
+  if (status.state === 'warn') {
+    return (
+      <span className="path-status path-warn" title={status.message}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Will be created
+      </span>
+    );
+  }
+  // error
+  return (
+    <span className="path-status path-error" title={status.message}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      {status.message ?? 'Invalid path'}
+    </span>
+  );
+};
+
 export const ServiceFormScreen: FC = () => {
   const { id } = useParams<{ id?: string }>();
   const isEdit = Boolean(id);
@@ -27,6 +72,9 @@ export const ServiceFormScreen: FC = () => {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const [certPathStatus, setCertPathStatus] = useState<PathStatus>(IDLE);
+  const [webrootPathStatus, setWebrootPathStatus] = useState<PathStatus>(IDLE);
 
   useEffect(() => {
     if (!isEdit || !id) return;
@@ -54,6 +102,48 @@ export const ServiceFormScreen: FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isEdit]);
 
+  /**
+   * Call the backend validate_paths action and update the status badges.
+   * Only checks non-empty fields; silently resets the other badge to idle.
+   */
+  const runPathCheck = useCallback(
+    async (certPath: string, webrootPath: string, verMethod: string) => {
+      const checkCert = certPath.trim() !== '';
+      const checkWebroot = webrootPath.trim() !== '' && verMethod === 'http';
+
+      if (!checkCert && !checkWebroot) return;
+
+      if (checkCert) setCertPathStatus({ state: 'checking' });
+      if (checkWebroot) setWebrootPathStatus({ state: 'checking' });
+
+      try {
+        const result = await checkPaths(certPath, webrootPath, verMethod);
+        if (checkCert) setCertPathStatus(statusFromResult(result.cert_path));
+        if (checkWebroot) setWebrootPathStatus(statusFromResult(result.webroot_path));
+      } catch {
+        if (checkCert) setCertPathStatus({ state: 'error', message: 'Could not verify path (server unreachable)' });
+        if (checkWebroot) setWebrootPathStatus({ state: 'error', message: 'Could not verify path (server unreachable)' });
+      }
+    },
+    [],
+  );
+
+  const handleCertPathBlur = () => {
+    if (form.cert_path.trim()) {
+      runPathCheck(form.cert_path, form.webroot_path, form.verification_method);
+    } else {
+      setCertPathStatus(IDLE);
+    }
+  };
+
+  const handleWebrootPathBlur = () => {
+    if (form.webroot_path.trim()) {
+      runPathCheck(form.cert_path, form.webroot_path, form.verification_method);
+    } else {
+      setWebrootPathStatus(IDLE);
+    }
+  };
+
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'Service name is required';
@@ -64,6 +154,13 @@ export const ServiceFormScreen: FC = () => {
     }
     if (form.verification_method === 'email' && !form.verification_email.trim()) {
       e.verification_email = 'Verification email is required';
+    }
+    // Block submit if we know a path is invalid
+    if (certPathStatus.state === 'error') {
+      e.cert_path = certPathStatus.message ?? 'Certificate path is invalid';
+    }
+    if (webrootPathStatus.state === 'error') {
+      e.webroot_path = webrootPathStatus.message ?? 'Webroot path is invalid';
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -93,6 +190,10 @@ export const ServiceFormScreen: FC = () => {
   const set = <K extends keyof ServiceFormData>(key: K, value: ServiceFormData[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
+    // Reset path status when field changes
+    if (key === 'cert_path') setCertPathStatus(IDLE);
+    if (key === 'webroot_path') setWebrootPathStatus(IDLE);
+    if (key === 'verification_method') setWebrootPathStatus(IDLE);
   };
 
   if (loading) {
@@ -157,13 +258,18 @@ export const ServiceFormScreen: FC = () => {
         <div className="card form-card">
           <h3 className="form-section-title">Certificate Settings</h3>
           <div className="form-group">
-            <label htmlFor="cert_path">Certificate Directory Path *</label>
+            <div className="path-label-row">
+              <label htmlFor="cert_path">Certificate Directory Path *</label>
+              <PathStatusIcon status={certPathStatus} />
+            </div>
             <input
               id="cert_path"
               type="text"
               value={form.cert_path}
               onChange={(e) => set('cert_path', e.target.value)}
+              onBlur={handleCertPathBlur}
               placeholder="/etc/nginx/certs/mysite"
+              className={certPathStatus.state === 'error' ? 'input-error' : certPathStatus.state === 'ok' ? 'input-ok' : ''}
             />
             <span className="field-hint">
               Directory where fullchain.pem and privkey.key will be saved
@@ -222,13 +328,18 @@ export const ServiceFormScreen: FC = () => {
 
           {form.verification_method === 'http' && (
             <div className="form-group">
-              <label htmlFor="webroot_path">Webroot Path *</label>
+              <div className="path-label-row">
+                <label htmlFor="webroot_path">Webroot Path *</label>
+                <PathStatusIcon status={webrootPathStatus} />
+              </div>
               <input
                 id="webroot_path"
                 type="text"
                 value={form.webroot_path}
                 onChange={(e) => set('webroot_path', e.target.value)}
+                onBlur={handleWebrootPathBlur}
                 placeholder="/var/www/html"
+                className={webrootPathStatus.state === 'error' ? 'input-error' : webrootPathStatus.state === 'ok' ? 'input-ok' : ''}
               />
               <span className="field-hint">
                 Document root of the web server (the validation file will be created at {'{webroot}'}/.well-known/pki-validation/)

@@ -1,5 +1,5 @@
 import { API_BASE } from '../config/config';
-import type { Service, ServiceFormData } from '../types/service.types';
+import type { Service, ServiceFormData, PathsValidationResult } from '../types/service.types';
 
 const headers = { 'Content-Type': 'application/json' };
 
@@ -45,4 +45,22 @@ export async function deleteService(id: string): Promise<void> {
   });
   const data = await res.json();
   if (!data.success) throw new Error(data.error ?? 'Failed to delete service');
+}
+
+export async function checkPaths(
+  certPath: string,
+  webrootPath: string,
+  verificationMethod: string,
+): Promise<PathsValidationResult> {
+  const res = await fetch(`${API_BASE}/services.php`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'validate_paths',
+      cert_path: certPath,
+      webroot_path: webrootPath,
+      verification_method: verificationMethod,
+    }),
+  });
+  return res.json();
 }

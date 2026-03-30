@@ -54,3 +54,17 @@ export interface Settings {
   zerossl_api_key_masked?: string;
   has_api_key: boolean;
 }
+
+export interface PathCheckResult {
+  valid: boolean;
+  exists: boolean;
+  writable: boolean;
+  error?: string;
+  note?: string;
+}
+
+export interface PathsValidationResult {
+  success: boolean;
+  cert_path: PathCheckResult | null;
+  webroot_path: PathCheckResult | null;
+}

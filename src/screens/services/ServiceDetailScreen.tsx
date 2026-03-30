@@ -243,7 +243,7 @@ export const ServiceDetailScreen: FC = () => {
                 <button
                   className="btn-success cert-action-btn"
                   onClick={() => handleAction('Install Certificate', installCertificate)}
-                  disabled={actionLoading}
+                  disabled={actionLoading || !service.cert_status || (service.cert_status !== 'issued' && service.cert_status !== 'pending_validation')}
                 >
                   {actionLoading ? <span className="spinner" /> : (
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

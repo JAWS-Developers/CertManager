@@ -139,8 +139,8 @@ class ImapMailbox
      */
     private function findAndProcessLinks($connection): array
     {
-        // Search for unseen messages whose sender contains "zerossl.com"
-        $uids = @imap_search($connection, 'FROM "zerossl.com" UNSEEN', SE_UID);
+        // Search for unseen messages whose sender contains "trust-provider.com"
+        $uids = @imap_search($connection, 'FROM "trust-provider.com" UNSEEN', SE_UID);
 
         if (empty($uids)) {
             return [];

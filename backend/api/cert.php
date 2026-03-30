@@ -409,6 +409,7 @@ function actionPollEmail(array $service): void
             'links_found'   => $found,
             'links_clicked' => $clicked,
             'details'       => $results,
+            'resluts'       => $results,
         ]);
     } catch (Throwable $e) {
         http_response_code(500);

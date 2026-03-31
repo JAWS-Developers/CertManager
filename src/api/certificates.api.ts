@@ -40,19 +40,6 @@ export async function renewCertificate(serviceId: string): Promise<CertActionRes
 }
 
 /**
- * Poll the configured IMAP inbox for ZeroSSL verification emails and
- * automatically click the verification links for this service's certificate.
- */
-export async function pollEmailVerification(serviceId: string): Promise<CertActionResult> {
-  const res = await fetch(`${API_BASE}/cert.php`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ action: 'poll_email', service_id: serviceId }),
-  });
-  return res.json();
-}
-
-/**
  * Read the configured IMAP inbox for ZeroSSL verification emails and return
  * the links and DCV codes found in them WITHOUT clicking anything.
  */

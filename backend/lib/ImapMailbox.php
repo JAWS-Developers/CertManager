@@ -329,7 +329,7 @@ class ImapMailbox
         // ---- Strategy 1: standalone code in a block/inline element ----------
         // Match an element whose only content is the code string.
         // Handles both HTML-entity-encoded (&amp; etc.) and plain bodies.
-        $codePattern = '/[A-Z0-9][A-Z0-9\-]{23,78}[A-Z0-9]/';
+        $codePattern = '/[A-Za-z0-9][A-Za-z0-9\-\*]{23,78}[A-Za-z0-9]/';
 
         if (preg_match_all(
             '/<(?:div|td|p|span|b|strong|h[1-6])[^>]*>\s*(' . trim($codePattern, '/') . ')\s*<\/(?:div|td|p|span|b|strong|h[1-6])>/i',
@@ -339,7 +339,7 @@ class ImapMailbox
             foreach ($matches[1] as $candidate) {
                 // Must be mostly uppercase-alphanumeric (allow hyphens).
                 // Reject anything that looks like a URL or sentence.
-                if (preg_match('/^[A-Z0-9][A-Z0-9\-]{23,78}[A-Z0-9]$/', $candidate)) {
+                if (preg_match('/^[A-Za-z0-9][A-Za-z0-9\-\*]{23,78}[A-Za-z0-9]$/', $candidate)) {
                     return $candidate;
                 }
             }

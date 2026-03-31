@@ -213,7 +213,11 @@ class CertManager
             $sshpass = $this->findBinary('sshpass');
             if ($sshpass !== null) {
                 $ssh = $this->findBinary('ssh') ?? 'ssh';
-                $sshCmd = $ssh . ' -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
+                $sshCmd = $ssh
+                    . ' -o StrictHostKeyChecking=no'
+                    . ' -o UserKnownHostsFile=/dev/null'
+                    . ' -o LogLevel=ERROR'
+                    . ' -o ConnectTimeout=10 '
                     . escapeshellarg("{$user}@{$host}") . ' '
                     . escapeshellarg($command);
                 $fullCmd = $sshpass . ' -p ' . escapeshellarg($password) . ' ' . $sshCmd . ' 2>&1';
@@ -233,7 +237,11 @@ class CertManager
 
         // ── Strategy 3: plain ssh (key / agent-based) ─────────────────────
         $ssh = $this->findBinary('ssh') ?? 'ssh';
-        $fullCmd = $ssh . ' -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
+        $fullCmd = $ssh
+            . ' -o StrictHostKeyChecking=no'
+            . ' -o UserKnownHostsFile=/dev/null'
+            . ' -o LogLevel=ERROR'
+            . ' -o ConnectTimeout=10 '
             . escapeshellarg("{$user}@{$host}") . ' '
             . escapeshellarg($command) . ' 2>&1';
         $out      = [];

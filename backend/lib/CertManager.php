@@ -97,8 +97,8 @@ class CertManager
         }
 
         $combined = rtrim($certPem) . "\n\n"
-                  . rtrim($caBundlePem) . "\n\n"
-                  . rtrim($privateKeyPem) . "\n";
+            . rtrim($caBundlePem) . "\n\n"
+            . rtrim($privateKeyPem) . "\n";
 
         $this->writeFile($certFilePath, $combined, 0600);
     }
@@ -172,23 +172,20 @@ class CertManager
         if (!empty($sshHost)) {
             // ── Remote execution via SSH ───────────────────────────────────
             $user    = !empty($sshUser) ? $sshUser : 'root';
-            $sshBase = 'ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
-                     . escapeshellarg("{$user}@{$sshHost}") . ' '
-                     . escapeshellarg($command) . ' 2>&1';
+            $sshBase = 'HOME=/tmp /usr/bin/ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
+                . escapeshellarg("{$user}@{$sshHost}") . ' '
+                . escapeshellarg($command) . ' 2>&1';
 
-            if (!empty($sshPassword)) {
-                $fullCmd = 'sshpass -p ' . escapeshellarg($sshPassword) . ' ' . $sshBase;
-            } else {
-                $fullCmd = $sshBase;
-            }
+            $fullCmd = '/bin/sshpass -p '
+                . escapeshellarg($sshPassword) . ' ' . $sshBase;
 
             exec($fullCmd, $output, $exitCode);
         } elseif (!empty($sshPassword)) {
             // ── Local execution with sudo ──────────────────────────────────
             $sudoUser = !empty($sshUser) ? ' -u ' . escapeshellarg($sshUser) : '';
             $fullCmd  = 'echo ' . escapeshellarg($sshPassword)
-                      . ' | sudo -S' . $sudoUser . ' '
-                      . escapeshellcmd($command) . ' 2>&1';
+                . ' | sudo -S' . $sudoUser . ' '
+                . escapeshellcmd($command) . ' 2>&1';
             exec($fullCmd, $output, $exitCode);
         } else {
             // ── Local execution as current user ────────────────────────────

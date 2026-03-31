@@ -141,19 +141,19 @@ class CertManager
      * Execute a shell command and return its output and exit code.
      *
      * Execution modes (first match wins):
-     *   1. SSH  — $sshHost is set: run the command on a remote host via SSH.
-     *             If $sshPassword is also set, authentication uses sshpass(1);
-     *             otherwise key-based authentication is assumed.
-     *   2. Sudo — $sshHost is empty but $sshPassword is set: run the command
-     *             on the local machine via "sudo -S" (reads password from stdin).
-     *   3. Local — no credentials: run as the current PHP process user (legacy
-     *             behaviour, useful when the web server already has permission or
-     *             when a sudoers NOPASSWD rule is in place).
+     *   1. SSH  — $sshHost is set: connects to the remote host and runs the
+     *             command.  Authentication order:
+     *             a) PHP ssh2 extension (password or key-based) — no external binary needed.
+     *             b) sshpass binary (searched in common paths) + openssh client.
+     *             c) Plain openssh client (key / agent — only when no password given).
+     *   2. Sudo — $sshHost is empty but $sshPassword is set: runs the command
+     *             locally via "sudo -S", feeding the password through a pipe.
+     *   3. Local — no credentials: runs as the current PHP process user.
      *
      * @param string $command      Shell command to execute.
      * @param string $sshHost      Remote host (or empty for local execution).
      * @param string $sshUser      SSH / sudo username (defaults to "root" for SSH).
-     * @param string $sshPassword  SSH or sudo password (leave empty for key-based SSH).
+     * @param string $sshPassword  Password for SSH or sudo (leave empty for key-based SSH).
      * @return array{output: string, exit_code: int}
      */
     public function executeCommand(
@@ -166,36 +166,176 @@ class CertManager
             return ['output' => '', 'exit_code' => 0];
         }
 
-        $output   = [];
-        $exitCode = 0;
-
         if (!empty($sshHost)) {
-            // ── Remote execution via SSH ───────────────────────────────────
-            $user    = !empty($sshUser) ? $sshUser : 'root';
-            $sshBase = 'HOME=/tmp /usr/bin/ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
-                . escapeshellarg("{$user}@{$sshHost}") . ' '
-                . escapeshellarg($command) . ' 2>&1';
-
-            $fullCmd = '/bin/sshpass -p '
-                . escapeshellarg($sshPassword) . ' ' . $sshBase;
-
-            exec($fullCmd, $output, $exitCode);
-        } elseif (!empty($sshPassword)) {
-            // ── Local execution with sudo ──────────────────────────────────
-            $sudoUser = !empty($sshUser) ? ' -u ' . escapeshellarg($sshUser) : '';
-            $fullCmd  = 'echo ' . escapeshellarg($sshPassword)
-                . ' | sudo -S' . $sudoUser . ' '
-                . escapeshellcmd($command) . ' 2>&1';
-            exec($fullCmd, $output, $exitCode);
-        } else {
-            // ── Local execution as current user ────────────────────────────
-            exec(escapeshellcmd($command) . ' 2>&1', $output, $exitCode);
+            return $this->executeViaSsh($command, $sshHost, $sshUser, $sshPassword);
         }
 
-        return [
-            'output'    => implode("\n", $output),
-            'exit_code' => $exitCode,
+        if (!empty($sshPassword)) {
+            return $this->executeViaSudo($command, $sshUser, $sshPassword);
+        }
+
+        // ── Local execution as current user ───────────────────────────────
+        $out      = [];
+        $exitCode = 0;
+        exec(escapeshellcmd($command) . ' 2>&1', $out, $exitCode);
+        return ['output' => implode("\n", $out), 'exit_code' => $exitCode];
+    }
+
+    // ------------------------------------------------------------------
+    // Private SSH / sudo helpers
+    // ------------------------------------------------------------------
+
+    /**
+     * Run a command on a remote host via SSH.
+     *
+     * Tries (in order):
+     *   1. PHP ssh2 extension — no external binary required.
+     *   2. sshpass + ssh      — searched in common PATH locations.
+     *   3. Plain ssh          — usable when no password is required (key/agent auth).
+     *
+     * @return array{output: string, exit_code: int}
+     */
+    private function executeViaSsh(
+        string $command,
+        string $host,
+        string $user,
+        string $password
+    ): array {
+        $user = !empty($user) ? $user : 'root';
+
+        // ── Strategy 1: PHP ssh2 extension ────────────────────────────────
+        if (extension_loaded('ssh2')) {
+            return $this->executeViaSsh2Extension($command, $host, $user, $password);
+        }
+
+        // ── Strategy 2: sshpass binary ────────────────────────────────────
+        if (!empty($password)) {
+            $sshpass = $this->findBinary('sshpass');
+            if ($sshpass !== null) {
+                $ssh = $this->findBinary('ssh') ?? 'ssh';
+                $sshCmd = $ssh . ' -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
+                    . escapeshellarg("{$user}@{$host}") . ' '
+                    . escapeshellarg($command);
+                $fullCmd = $sshpass . ' -p ' . escapeshellarg($password) . ' ' . $sshCmd . ' 2>&1';
+                $out      = [];
+                $exitCode = 0;
+                exec($fullCmd, $out, $exitCode);
+                return ['output' => implode("\n", $out), 'exit_code' => $exitCode];
+            }
+
+            // sshpass not found and password was supplied — abort with a clear message
+            return [
+                'output'    => 'SSH with password requires either the PHP ssh2 extension'
+                             . ' (php-ssh2) or the sshpass utility to be installed on the server.',
+                'exit_code' => 127,
+            ];
+        }
+
+        // ── Strategy 3: plain ssh (key / agent-based) ─────────────────────
+        $ssh = $this->findBinary('ssh') ?? 'ssh';
+        $fullCmd = $ssh . ' -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
+            . escapeshellarg("{$user}@{$host}") . ' '
+            . escapeshellarg($command) . ' 2>&1';
+        $out      = [];
+        $exitCode = 0;
+        exec($fullCmd, $out, $exitCode);
+        return ['output' => implode("\n", $out), 'exit_code' => $exitCode];
+    }
+
+    /**
+     * Use PHP's ssh2 extension to run a command on a remote host.
+     *
+     * @return array{output: string, exit_code: int}
+     */
+    private function executeViaSsh2Extension(
+        string $command,
+        string $host,
+        string $user,
+        string $password
+    ): array {
+        $conn = @ssh2_connect($host, 22);
+        if ($conn === false) {
+            return ['output' => "SSH: Could not connect to {$host}", 'exit_code' => 1];
+        }
+
+        if (!empty($password)) {
+            if (!@ssh2_auth_password($conn, $user, $password)) {
+                return ['output' => "SSH: Password authentication failed for {$user}@{$host}", 'exit_code' => 1];
+            }
+        } elseif (!@ssh2_auth_agent($conn, $user)) {
+            return ['output' => "SSH: Agent/key authentication failed for {$user}@{$host}", 'exit_code' => 1];
+        }
+
+        $stream = @ssh2_exec($conn, $command . ' 2>&1');
+        if ($stream === false) {
+            return ['output' => 'SSH: Failed to execute remote command', 'exit_code' => 1];
+        }
+
+        stream_set_blocking($stream, true);
+        $output = (string) stream_get_contents($stream);
+        fclose($stream);
+
+        return ['output' => rtrim($output), 'exit_code' => 0];
+    }
+
+    /**
+     * Run a command locally via sudo, feeding the password through a pipe.
+     *
+     * Uses proc_open so the password goes directly to sudo's stdin without
+     * being visible in the process list (avoids "echo pass | sudo").
+     *
+     * @return array{output: string, exit_code: int}
+     */
+    private function executeViaSudo(string $command, string $user, string $password): array
+    {
+        $sudoUser = !empty($user) ? ' -u ' . escapeshellarg($user) : '';
+        $fullCmd  = 'sudo -S' . $sudoUser . ' ' . escapeshellcmd($command) . ' 2>&1';
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
         ];
+
+        $proc = @proc_open($fullCmd, $descriptors, $pipes);
+        if (!is_resource($proc)) {
+            return ['output' => 'Failed to start sudo process', 'exit_code' => 1];
+        }
+
+        fwrite($pipes[0], $password . "\n");
+        fclose($pipes[0]);
+
+        $stdout = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+
+        $exitCode = proc_close($proc);
+
+        $combined = rtrim($stdout . ($stderr ? "\n" . $stderr : ''));
+        return ['output' => $combined, 'exit_code' => $exitCode];
+    }
+
+    /**
+     * Find the full path of a system binary by checking common directories
+     * and then falling back to `which`.
+     */
+    private function findBinary(string $name): ?string
+    {
+        $candidates = [
+            "/usr/bin/{$name}",
+            "/bin/{$name}",
+            "/usr/local/bin/{$name}",
+            "/usr/sbin/{$name}",
+        ];
+        foreach ($candidates as $path) {
+            if (is_executable($path)) {
+                return $path;
+            }
+        }
+        // `which` fallback
+        $found = trim((string) shell_exec('which ' . escapeshellarg($name) . ' 2>/dev/null'));
+        return ($found !== '' && is_executable($found)) ? $found : null;
     }
 
     // ------------------------------------------------------------------

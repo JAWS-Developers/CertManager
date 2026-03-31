@@ -52,6 +52,19 @@ export async function readInbox(serviceId: string): Promise<ReadInboxResult> {
   return res.json();
 }
 
+/**
+ * Re-trigger the ZeroSSL verification email for the certificate already
+ * associated with a service (useful when the original email was deleted).
+ */
+export async function resendVerification(serviceId: string): Promise<CertActionResult> {
+  const res = await fetch(`${API_BASE}/cert.php`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ action: 'resend_verification', service_id: serviceId }),
+  });
+  return res.json();
+}
+
 export async function getCertStatus(serviceId: string): Promise<CertActionResult & { cert?: unknown }> {
   const res = await fetch(`${API_BASE}/cert.php?action=status&service_id=${encodeURIComponent(serviceId)}`);
   return res.json();

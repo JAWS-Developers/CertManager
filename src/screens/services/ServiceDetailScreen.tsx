@@ -8,6 +8,7 @@ import {
   renewCertificate,
   getCertStatus,
   readInbox,
+  resendVerification,
 } from '../../api/certificates.api';
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -129,6 +130,26 @@ export const ServiceDetailScreen: FC = () => {
       notify('Failed to connect to inbox', 'error');
     } finally {
       setInboxLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!id) return;
+    setActionLoading(true);
+    try {
+      const result = await resendVerification(id);
+      if (result.success) {
+        addLog(result.message ?? 'Verification email resent', 'success');
+        notify(result.message ?? 'Verification email resent', 'success');
+      } else {
+        const msg = result.error ?? 'Failed to resend verification email';
+        addLog(msg, 'error');
+        notify(msg, 'error');
+      }
+    } catch {
+      notify('Failed to resend verification email', 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -278,6 +299,20 @@ export const ServiceDetailScreen: FC = () => {
                     )}
                     📋 Show Links & Codes
                   </button>
+                  <button
+                    className="btn-secondary cert-action-btn"
+                    onClick={handleResendVerification}
+                    disabled={actionLoading || inboxLoading}
+                    title="Resend the ZeroSSL verification email (use if the original was deleted by mistake)"
+                  >
+                    {actionLoading ? <span className="spinner" /> : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="1 4 1 10 7 10"/>
+                        <path d="M3.51 15a9 9 0 1 0 .49-5.4L1 10"/>
+                      </svg>
+                    )}
+                    📨 Resend Email
+                  </button>
                 </>
               )}
 
@@ -359,7 +394,11 @@ export const ServiceDetailScreen: FC = () => {
                   No ZeroSSL verification emails found. The email may not have arrived yet — try again in a moment.
                 </p>
               ) : (
-                <div className="inbox-emails">
+                <>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '0 0 12px 0' }}>
+                    ℹ️ These emails have been removed from the inbox. Use <strong>📨 Resend Email</strong> if you need a new copy.
+                  </p>
+                  <div className="inbox-emails">
                   {inboxEmails.map((email, idx) => (
                     <div key={email.uid} className="inbox-email-item">
                       <div className="inbox-email-subject">
@@ -399,7 +438,8 @@ export const ServiceDetailScreen: FC = () => {
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           )}

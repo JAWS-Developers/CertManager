@@ -63,6 +63,33 @@ class ImapMailbox
     }
 
     /**
+     * Permanently delete the messages identified by the given UID list from
+     * the mailbox.  Messages are flagged for deletion and the mailbox is
+     * expunged immediately.
+     *
+     * @param list<int> $uids  UIDs returned by fetchVerificationEmails().
+     * @throws RuntimeException when the IMAP extension is missing or the connection fails.
+     */
+    public function deleteEmailsByUid(array $uids): void
+    {
+        if (empty($uids)) {
+            return;
+        }
+
+        $this->requireImapExtension();
+        $connection = $this->openConnection();
+
+        try {
+            foreach ($uids as $uid) {
+                @imap_delete($connection, (string) $uid, FT_UID);
+            }
+            @imap_expunge($connection);
+        } finally {
+            @imap_close($connection, CL_EXPUNGE);
+        }
+    }
+
+    /**
      * Open the mailbox, find every unseen ZeroSSL verification email, click
      * the verification link inside each one, and mark the email as seen.
      *

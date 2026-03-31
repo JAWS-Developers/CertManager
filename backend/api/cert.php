@@ -117,6 +117,9 @@ function handlePost(array $input): void
         case 'read_inbox':
             actionReadInbox($service);
             break;
+        case 'resend_verification':
+            actionResendVerification($service);
+            break;
         default:
             http_response_code(400);
             echo json_encode(['success' => false, 'error' => 'Unknown action']);
@@ -401,10 +404,68 @@ function actionReadInbox(array $service): void
         $imap   = new ImapMailbox($host, $port, $encryption, $username, $password);
         $emails = $imap->fetchVerificationEmails();
 
+        // Permanently delete the fetched emails so they don't pile up.
+        if (!empty($emails)) {
+            $uids = array_column($emails, 'uid');
+            $imap->deleteEmailsByUid($uids);
+        }
+
         echo json_encode([
             'success' => true,
             'emails'  => $emails,
             'count'   => count($emails),
+        ]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+function actionResendVerification(array $service): void
+{
+    $certId = $service['cert_id'] ?? null;
+    if (!$certId) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error'   => 'No certificate request found for this service. Request a certificate first.',
+        ]);
+        return;
+    }
+
+    $email = $service['verification_email'] ?? '';
+    if (empty($email)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error'   => 'Verification email address is not configured for this service.',
+        ]);
+        return;
+    }
+
+    $domains = $service['domains'] ?? [];
+
+    try {
+        $zerossl   = getZeroSSL();
+        $challenge = $zerossl->initiateVerification($certId, 'EMAIL', $email, $domains);
+
+        if (!empty($challenge['error'])) {
+            $errMsg = is_array($challenge['error'])
+                ? ($challenge['error']['type'] ?? json_encode($challenge['error']))
+                : (string) $challenge['error'];
+            echo json_encode([
+                'success' => false,
+                'error'   => "ZeroSSL challenge error: {$errMsg}",
+                'details' => $challenge,
+            ]);
+            return;
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Verification email resent to {$email}.",
         ]);
     } catch (Throwable $e) {
         http_response_code(500);

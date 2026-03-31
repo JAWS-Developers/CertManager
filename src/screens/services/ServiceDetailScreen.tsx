@@ -133,14 +133,18 @@ export const ServiceDetailScreen: FC = () => {
     }
   };
 
-  const copyToClipboard = async (text: string, key: string) => {
+  const openVerification = async (url: string, dcvCode: string, key: string) => {
+    // Copy the DCV code first, then open the link — user just pastes on the page
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 2000);
+      if (dcvCode) {
+        await navigator.clipboard.writeText(dcvCode);
+        setCopiedKey(key);
+        setTimeout(() => setCopiedKey(null), 3000);
+      }
     } catch {
-      // fallback – select/copy manually
+      // clipboard not available — proceed anyway
     }
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   if (loading) {
@@ -378,52 +382,34 @@ export const ServiceDetailScreen: FC = () => {
                         {email.subject || '(no subject)'}
                       </div>
 
-                      {email.order_number && (
-                        <div className="inbox-field-row">
-                          <span className="inbox-field-label">Order #</span>
-                          <code className="inbox-field-value">{email.order_number}</code>
-                          <button
-                            className="btn-copy"
-                            onClick={() => copyToClipboard(email.order_number, `order-${email.uid}`)}
-                          >
-                            {copiedKey === `order-${email.uid}` ? '✓ Copied' : 'Copy'}
-                          </button>
-                        </div>
-                      )}
-
                       {email.dcv_code && (
                         <div className="inbox-field-row">
                           <span className="inbox-field-label">DCV Code</span>
                           <code className="inbox-field-value inbox-code-highlight">{email.dcv_code}</code>
-                          <button
-                            className="btn-copy"
-                            onClick={() => copyToClipboard(email.dcv_code, `dcv-${email.uid}`)}
-                          >
-                            {copiedKey === `dcv-${email.uid}` ? '✓ Copied' : 'Copy'}
-                          </button>
                         </div>
                       )}
 
                       <div className="inbox-links">
-                        <span className="inbox-field-label" style={{ marginBottom: 6, display: 'block' }}>Verification Link{email.links.length > 1 ? 's' : ''}</span>
                         {email.links.map((url, li) => (
-                          <div key={li} className="inbox-link-row">
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inbox-link"
-                              title={url}
-                            >
-                              🔗 Click to verify
-                            </a>
-                            <button
-                              className="btn-copy"
-                              onClick={() => copyToClipboard(url, `url-${email.uid}-${li}`)}
-                            >
-                              {copiedKey === `url-${email.uid}-${li}` ? '✓ Copied' : 'Copy URL'}
-                            </button>
-                          </div>
+                          <button
+                            key={li}
+                            className={`btn-open-verification${copiedKey === `open-${email.uid}-${li}` ? ' copied' : ''}`}
+                            onClick={() => openVerification(url, email.dcv_code, `open-${email.uid}-${li}`)}
+                            title={url}
+                          >
+                            {copiedKey === `open-${email.uid}-${li}` ? (
+                              <>✓ Code copied — paste it on the page</>
+                            ) : (
+                              <>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                  <polyline points="15 3 21 3 21 9"/>
+                                  <line x1="10" y1="14" x2="21" y2="3"/>
+                                </svg>
+                                Open Verification{email.dcv_code ? ' & Copy Code' : ''}
+                              </>
+                            )}
+                          </button>
                         ))}
                       </div>
                     </div>

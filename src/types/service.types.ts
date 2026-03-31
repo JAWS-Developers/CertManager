@@ -17,6 +17,9 @@ export interface Service {
   cert_path: string;
   webroot_path: string;
   restart_command: string;
+  restart_ssh_host: string;
+  restart_ssh_user: string;
+  restart_ssh_password: string;
   verification_method: VerificationMethod;
   verification_email: string;
   cert_id: string | null;
@@ -33,6 +36,9 @@ export interface ServiceFormData {
   cert_path: string;
   webroot_path: string;
   restart_command: string;
+  restart_ssh_host: string;
+  restart_ssh_user: string;
+  restart_ssh_password: string;
   verification_method: VerificationMethod;
   verification_email: string;
 }

@@ -318,7 +318,12 @@ function actionInstall(array $service, CertManager $certManager): void
 
         // 4. Execute restart command
         $restartCommand = $service['restart_command'] ?? '';
-        $cmdResult      = $certManager->executeCommand($restartCommand);
+        $cmdResult      = $certManager->executeCommand(
+            $restartCommand,
+            $service['restart_ssh_host']     ?? '',
+            $service['restart_ssh_user']     ?? '',
+            $service['restart_ssh_password'] ?? ''
+        );
 
         // 5. Clean up HTTP validation file if present
         $webrootPath = $service['webroot_path'] ?? '';

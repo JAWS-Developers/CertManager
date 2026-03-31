@@ -126,8 +126,10 @@ switch ($method) {
 /**
  * Validate a single filesystem path.
  *
- * For 'cert' paths the directory may not exist yet; in that case the parent
- * directory must exist and be writable so that CertManager can create it.
+ * For 'cert' paths the value is a *full file path* (not a directory).
+ *   - If the file already exists it must be writable.
+ *   - If the file does not exist the parent directory must exist and be writable.
+ *   - The basename must be non-empty (i.e. the path must include a filename).
  *
  * For 'webroot' paths the directory must already exist and be writable.
  *
@@ -137,72 +139,76 @@ function validatePath(string $path, string $type = 'cert'): array
 {
     $path = rtrim($path, '/');
 
-    if ($type === 'webroot') {
-        if (!is_dir($path)) {
+    if ($type === 'cert') {
+        // Ensure the path includes a filename (basename must be non-empty and
+        // not the same as the directory portion).
+        $basename = basename($path);
+        if ($basename === '' || $basename === '.') {
             return [
                 'valid'    => false,
                 'exists'   => false,
                 'writable' => false,
-                'error'    => "Webroot directory does not exist: {$path}",
+                'error'    => 'Certificate path must include a filename (e.g. /etc/nginx/ssl/mysite.pem)',
             ];
         }
-        if (!is_writable($path)) {
+
+        // File already exists — must be writable
+        if (file_exists($path)) {
+            if (!is_writable($path)) {
+                return [
+                    'valid'    => false,
+                    'exists'   => true,
+                    'writable' => false,
+                    'error'    => "Certificate file is not writable: {$path}",
+                ];
+            }
+            return ['valid' => true, 'exists' => true, 'writable' => true];
+        }
+
+        // File doesn't exist — check parent directory
+        $parent = dirname($path);
+        if (!is_dir($parent)) {
             return [
                 'valid'    => false,
-                'exists'   => true,
+                'exists'   => false,
                 'writable' => false,
-                'error'    => "Webroot directory is not writable: {$path}",
+                'error'    => "Parent directory does not exist: {$parent}",
             ];
         }
-        return ['valid' => true, 'exists' => true, 'writable' => true];
-    }
-
-    // cert_path: directory may not exist yet
-    if (is_dir($path)) {
-        if (!is_writable($path)) {
+        if (!is_writable($parent)) {
             return [
                 'valid'    => false,
-                'exists'   => true,
+                'exists'   => false,
                 'writable' => false,
-                'error'    => "Certificate directory is not writable: {$path}",
+                'error'    => "Parent directory is not writable (cannot create file): {$parent}",
             ];
         }
-        return ['valid' => true, 'exists' => true, 'writable' => true];
+        return [
+            'valid'    => true,
+            'exists'   => false,
+            'writable' => true,
+            'note'     => "File will be created: {$path}",
+        ];
     }
 
-    if (file_exists($path)) {
+    // ── webroot ───────────────────────────────────────────────────────────
+    if (!is_dir($path)) {
+        return [
+            'valid'    => false,
+            'exists'   => false,
+            'writable' => false,
+            'error'    => "Webroot directory does not exist: {$path}",
+        ];
+    }
+    if (!is_writable($path)) {
         return [
             'valid'    => false,
             'exists'   => true,
             'writable' => false,
-            'error'    => "Path exists but is not a directory: {$path}",
+            'error'    => "Webroot directory is not writable: {$path}",
         ];
     }
-
-    // Directory doesn't exist – check that the parent is writable
-    $parent = dirname($path);
-    if (!is_dir($parent)) {
-        return [
-            'valid'    => false,
-            'exists'   => false,
-            'writable' => false,
-            'error'    => "Parent directory does not exist: {$parent}",
-        ];
-    }
-    if (!is_writable($parent)) {
-        return [
-            'valid'    => false,
-            'exists'   => false,
-            'writable' => false,
-            'error'    => "Parent directory is not writable (cannot create {$path}): {$parent}",
-        ];
-    }
-    return [
-        'valid'    => true,
-        'exists'   => false,
-        'writable' => true,
-        'note'     => "Directory will be created automatically: {$path}",
-    ];
+    return ['valid' => true, 'exists' => true, 'writable' => true];
 }
 
 /**

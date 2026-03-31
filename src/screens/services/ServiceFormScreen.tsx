@@ -13,6 +13,9 @@ const EMPTY_FORM: ServiceFormData = {
   cert_path: '',
   webroot_path: '',
   restart_command: '',
+  restart_ssh_host: '',
+  restart_ssh_user: '',
+  restart_ssh_password: '',
   verification_method: 'email',
   verification_email: '',
 };
@@ -41,8 +44,8 @@ const IDLE: PathStatus = { state: 'idle' };
 function statusFromResult(result: PathCheckResult | null | undefined): PathStatus {
   if (!result) return IDLE;
   if (!result.valid) return { state: 'error', message: result.error };
-  if (!result.exists) return { state: 'warn', message: result.note ?? 'Directory will be created automatically' };
-  return { state: 'ok', message: result.exists ? 'Directory exists and is writable' : undefined };
+  if (!result.exists) return { state: 'warn', message: result.note ?? 'Will be created automatically' };
+  return { state: 'ok', message: 'Accessible' };
 }
 
 const PathStatusIcon: FC<{ status: PathStatus }> = ({ status }) => {
@@ -109,6 +112,9 @@ export const ServiceFormScreen: FC = () => {
           cert_path: service.cert_path,
           webroot_path: service.webroot_path,
           restart_command: service.restart_command,
+          restart_ssh_host: service.restart_ssh_host ?? '',
+          restart_ssh_user: service.restart_ssh_user ?? '',
+          restart_ssh_password: service.restart_ssh_password ?? '',
           verification_method: service.verification_method,
           verification_email: service.verification_email,
         });
@@ -293,7 +299,7 @@ export const ServiceFormScreen: FC = () => {
           <h3 className="form-section-title">Certificate Settings</h3>
           <div className="form-group">
             <div className="path-label-row">
-              <label htmlFor="cert_path">Certificate Directory Path *</label>
+              <label htmlFor="cert_path">Certificate File Path *</label>
               <PathStatusIcon status={certPathStatus} />
             </div>
             <input
@@ -302,11 +308,11 @@ export const ServiceFormScreen: FC = () => {
               value={form.cert_path}
               onChange={(e) => set('cert_path', e.target.value)}
               onBlur={handleCertPathBlur}
-              placeholder="/etc/nginx/certs/mysite"
+              placeholder="/etc/nginx/ssl/mysite.pem"
               className={certPathStatus.state === 'error' ? 'input-error' : certPathStatus.state === 'ok' ? 'input-ok' : ''}
             />
             <span className="field-hint">
-              Directory where fullchain.pem and privkey.key will be saved
+              Full path to the certificate file (cert + chain + key combined into one PEM). The file will be created or overwritten.
             </span>
             {errors.cert_path && <span className="field-error">{errors.cert_path}</span>}
           </div>
@@ -321,9 +327,50 @@ export const ServiceFormScreen: FC = () => {
               placeholder="systemctl restart nginx"
             />
             <span className="field-hint">
-              Command to execute after certificate installation (runs as the PHP process user)
+              Command to execute after certificate installation
             </span>
           </div>
+
+          <div className="form-group">
+            <label htmlFor="restart_ssh_host">SSH Host <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+            <input
+              id="restart_ssh_host"
+              type="text"
+              value={form.restart_ssh_host}
+              onChange={(e) => set('restart_ssh_host', e.target.value)}
+              placeholder="192.168.1.10 or server.example.com"
+            />
+            <span className="field-hint">
+              If set, the restart command is executed on this remote host via SSH. Leave blank to run locally.
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label htmlFor="restart_ssh_user">SSH / Sudo User <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+              <input
+                id="restart_ssh_user"
+                type="text"
+                value={form.restart_ssh_user}
+                onChange={(e) => set('restart_ssh_user', e.target.value)}
+                placeholder="root"
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label htmlFor="restart_ssh_password">SSH / Sudo Password <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+              <input
+                id="restart_ssh_password"
+                type="password"
+                value={form.restart_ssh_password}
+                onChange={(e) => set('restart_ssh_password', e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+          <span className="field-hint" style={{ marginTop: -8, display: 'block' }}>
+            With SSH Host set: connects via SSH (uses sshpass if password is given). Without SSH Host: runs the command locally via <code>sudo -S</code> using the password above.
+          </span>
         </div>
 
         {/* Verification */}

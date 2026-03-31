@@ -65,39 +65,42 @@ class CertManager
     }
 
     /**
-     * Write the certificate files to the configured path directory.
+     * Write a single combined PEM certificate file to the given file path.
      *
-     * Creates:
-     *   {cert_path}/fullchain.pem  – certificate + CA bundle
-     *   {cert_path}/privkey.key    – private key
-     *   {cert_path}/cert.pem       – leaf certificate only
-     *   {cert_path}/chain.pem      – CA bundle only
+     * The file contains, in order:
+     *   1. The leaf certificate
+     *   2. The CA bundle / intermediate chain
+     *   3. The private key
+     *
+     * This all-in-one format is accepted by nginx, Apache, HAProxy and most
+     * other servers.  The file is created with mode 0600 because it contains
+     * the private key.  The parent directory is created automatically if it
+     * does not already exist.
      *
      * @param string $certPem        Leaf certificate PEM.
      * @param string $caBundlePem    CA bundle PEM.
      * @param string $privateKeyPem  Private key PEM.
-     * @param string $certPath       Target directory path.
+     * @param string $certFilePath   Full path to the target file
+     *                               (e.g. /etc/nginx/ssl/mysite.pem).
      */
     public function installCertificate(
         string $certPem,
         string $caBundlePem,
         string $privateKeyPem,
-        string $certPath
+        string $certFilePath
     ): void {
-        if (!is_dir($certPath)) {
-            if (!mkdir($certPath, 0755, true)) {
-                throw new RuntimeException("Cannot create directory: {$certPath}");
+        $dir = dirname($certFilePath);
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, 0755, true)) {
+                throw new RuntimeException("Cannot create directory: {$dir}");
             }
         }
 
-        $certPath = rtrim($certPath, '/');
+        $combined = rtrim($certPem) . "\n\n"
+                  . rtrim($caBundlePem) . "\n\n"
+                  . rtrim($privateKeyPem) . "\n";
 
-        $fullChain = $certPem . "\n" . $caBundlePem;
-
-        $this->writeFile("{$certPath}/fullchain.pem", $fullChain, 0644);
-        $this->writeFile("{$certPath}/privkey.key", $privateKeyPem, 0600);
-        $this->writeFile("{$certPath}/cert.pem", $certPem, 0644);
-        $this->writeFile("{$certPath}/chain.pem", $caBundlePem, 0644);
+        $this->writeFile($certFilePath, $combined, 0600);
     }
 
     /**
@@ -135,19 +138,62 @@ class CertManager
     }
 
     /**
-     * Execute a shell command safely and return its output and exit code.
+     * Execute a shell command and return its output and exit code.
      *
+     * Execution modes (first match wins):
+     *   1. SSH  — $sshHost is set: run the command on a remote host via SSH.
+     *             If $sshPassword is also set, authentication uses sshpass(1);
+     *             otherwise key-based authentication is assumed.
+     *   2. Sudo — $sshHost is empty but $sshPassword is set: run the command
+     *             on the local machine via "sudo -S" (reads password from stdin).
+     *   3. Local — no credentials: run as the current PHP process user (legacy
+     *             behaviour, useful when the web server already has permission or
+     *             when a sudoers NOPASSWD rule is in place).
+     *
+     * @param string $command      Shell command to execute.
+     * @param string $sshHost      Remote host (or empty for local execution).
+     * @param string $sshUser      SSH / sudo username (defaults to "root" for SSH).
+     * @param string $sshPassword  SSH or sudo password (leave empty for key-based SSH).
      * @return array{output: string, exit_code: int}
      */
-    public function executeCommand(string $command): array
-    {
+    public function executeCommand(
+        string $command,
+        string $sshHost = '',
+        string $sshUser = '',
+        string $sshPassword = ''
+    ): array {
         if (empty(trim($command))) {
             return ['output' => '', 'exit_code' => 0];
         }
 
-        $output    = [];
-        $exitCode  = 0;
-        exec(escapeshellcmd($command) . ' 2>&1', $output, $exitCode);
+        $output   = [];
+        $exitCode = 0;
+
+        if (!empty($sshHost)) {
+            // ── Remote execution via SSH ───────────────────────────────────
+            $user    = !empty($sshUser) ? $sshUser : 'root';
+            $sshBase = 'ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 '
+                     . escapeshellarg("{$user}@{$sshHost}") . ' '
+                     . escapeshellarg($command) . ' 2>&1';
+
+            if (!empty($sshPassword)) {
+                $fullCmd = 'sshpass -p ' . escapeshellarg($sshPassword) . ' ' . $sshBase;
+            } else {
+                $fullCmd = $sshBase;
+            }
+
+            exec($fullCmd, $output, $exitCode);
+        } elseif (!empty($sshPassword)) {
+            // ── Local execution with sudo ──────────────────────────────────
+            $sudoUser = !empty($sshUser) ? ' -u ' . escapeshellarg($sshUser) : '';
+            $fullCmd  = 'echo ' . escapeshellarg($sshPassword)
+                      . ' | sudo -S' . $sudoUser . ' '
+                      . escapeshellcmd($command) . ' 2>&1';
+            exec($fullCmd, $output, $exitCode);
+        } else {
+            // ── Local execution as current user ────────────────────────────
+            exec(escapeshellcmd($command) . ' 2>&1', $output, $exitCode);
+        }
 
         return [
             'output'    => implode("\n", $output),

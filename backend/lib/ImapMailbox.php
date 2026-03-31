@@ -196,9 +196,10 @@ class ImapMailbox
                 continue;
             }
 
-            // Extract DCV code and order number from the first link's query string.
-            // ZeroSSL/trust-provider.com uses camelCase (dcvCode, orderNumber) but
-            // the casing may vary across API versions, so we check both forms.
+            // Extract order number and DCV code.
+            // Priority: (1) visible code displayed in a <div>/<td>/<p> in the email
+            // body — that is the code the user actually needs to paste on the
+            // verification page; (2) fall back to the dcvCode URL query parameter.
             $dcvCode     = '';
             $orderNumber = '';
             $parsedUrl   = parse_url($links[0]);
@@ -206,6 +207,11 @@ class ImapMailbox
                 parse_str($parsedUrl['query'], $params);
                 $dcvCode     = $params['dcvCode']     ?? $params['DcvCode']     ?? '';
                 $orderNumber = $params['orderNumber'] ?? $params['ordernumber'] ?? '';
+            }
+
+            $bodyCode = $this->extractDcvCodeFromBody($body);
+            if ($bodyCode !== '') {
+                $dcvCode = $bodyCode;
             }
 
             $emails[] = [
@@ -300,6 +306,55 @@ class ImapMailbox
             default:
                 return $raw;
         }
+    }
+
+    /**
+     * Extract the DCV (Domain Control Validation) code that Sectigo/ZeroSSL
+     * displays visually in the email body HTML.
+     *
+     * The code is shown in a prominent block element (div, td, p) as a long
+     * uppercase alphanumeric string — typically 28–64 characters.  It is the
+     * same value as the `dcvCode` URL query parameter but extracting it from
+     * the rendered body is more robust and matches exactly what the user would
+     * copy-paste from the email.
+     *
+     * Strategy (tried in order):
+     *  1. Any <div>, <td>, <p>, or <span> whose entire text content is a
+     *     25–80 char uppercase-alphanumeric string (with optional hyphens).
+     *  2. Text that immediately follows a label containing "code", "dcv",
+     *     or "validation" (case-insensitive).
+     */
+    private function extractDcvCodeFromBody(string $body): string
+    {
+        // ---- Strategy 1: standalone code in a block/inline element ----------
+        // Match an element whose only content is the code string.
+        // Handles both HTML-entity-encoded (&amp; etc.) and plain bodies.
+        $codePattern = '/[A-Z0-9][A-Z0-9\-]{23,78}[A-Z0-9]/';
+
+        if (preg_match_all(
+            '/<(?:div|td|p|span|b|strong|h[1-6])[^>]*>\s*(' . trim($codePattern, '/') . ')\s*<\/(?:div|td|p|span|b|strong|h[1-6])>/i',
+            $body,
+            $matches
+        )) {
+            foreach ($matches[1] as $candidate) {
+                // Must be mostly uppercase-alphanumeric (allow hyphens).
+                // Reject anything that looks like a URL or sentence.
+                if (preg_match('/^[A-Z0-9][A-Z0-9\-]{23,78}[A-Z0-9]$/', $candidate)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        // ---- Strategy 2: code that follows a "validation code" label --------
+        if (preg_match(
+            '/(?:validation\s+code|dcv\s*code|your\s+code)[^A-Z0-9]*([A-Z0-9][A-Z0-9\-]{23,78}[A-Z0-9])/i',
+            strip_tags($body),
+            $m
+        )) {
+            return strtoupper($m[1]);
+        }
+
+        return '';
     }
 
     /**

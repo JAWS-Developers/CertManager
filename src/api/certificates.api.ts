@@ -1,5 +1,5 @@
 import { API_BASE } from '../config/config';
-import type { CertActionResult, Settings } from '../types/service.types';
+import type { CertActionResult, ReadInboxResult, Settings } from '../types/service.types';
 
 const headers = { 'Content-Type': 'application/json' };
 
@@ -48,6 +48,19 @@ export async function pollEmailVerification(serviceId: string): Promise<CertActi
     method: 'POST',
     headers,
     body: JSON.stringify({ action: 'poll_email', service_id: serviceId }),
+  });
+  return res.json();
+}
+
+/**
+ * Read the configured IMAP inbox for ZeroSSL verification emails and return
+ * the links and DCV codes found in them WITHOUT clicking anything.
+ */
+export async function readInbox(serviceId: string): Promise<ReadInboxResult> {
+  const res = await fetch(`${API_BASE}/cert.php`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ action: 'read_inbox', service_id: serviceId }),
   });
   return res.json();
 }

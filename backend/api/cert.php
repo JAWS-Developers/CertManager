@@ -117,6 +117,9 @@ function handlePost(array $input): void
         case 'poll_email':
             actionPollEmail($service);
             break;
+        case 'read_inbox':
+            actionReadInbox($service);
+            break;
         default:
             http_response_code(400);
             echo json_encode(['success' => false, 'error' => 'Unknown action']);
@@ -441,7 +444,42 @@ function actionPollEmail(array $service): void
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+
+function actionReadInbox(array $service): void
+{
+    $settingsRaw = @file_get_contents(SETTINGS_FILE);
+    $settings    = json_decode($settingsRaw ?: '{}', true) ?? [];
+
+    $host       = $settings['imap_host']       ?? '';
+    $port       = (int) ($settings['imap_port'] ?? 993);
+    $encryption = $settings['imap_encryption'] ?? 'ssl';
+    $username   = $settings['imap_username']   ?? '';
+    $password   = $settings['imap_password']   ?? '';
+
+    if (empty($host) || empty($username) || empty($password)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error'   => 'IMAP mailbox is not configured. Go to Settings to set up the verification inbox.',
+        ]);
+        return;
+    }
+
+    try {
+        $imap   = new ImapMailbox($host, $port, $encryption, $username, $password);
+        $emails = $imap->fetchVerificationEmails();
+
+        echo json_encode([
+            'success' => true,
+            'emails'  => $emails,
+            'count'   => count($emails),
+        ]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
 // ---------------------------------------------------------------------------
 
 function handleHttpValidation(

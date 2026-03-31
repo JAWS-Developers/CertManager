@@ -61,6 +61,21 @@ export interface Settings {
   imap_password_masked?: string;
 }
 
+export interface InboxEmail {
+  uid: number;
+  subject: string;
+  links: string[];
+  dcv_code: string;
+  order_number: string;
+}
+
+export interface ReadInboxResult {
+  success: boolean;
+  error?: string;
+  emails?: InboxEmail[];
+  count?: number;
+}
+
 export interface PathCheckResult {
   valid: boolean;
   exists: boolean;

@@ -8,10 +8,11 @@ import {
   renewCertificate,
   getCertStatus,
   pollEmailVerification,
+  readInbox,
 } from '../../api/certificates.api';
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge';
 import { useNotification } from '../../contexts/NotificationContext';
-import type { Service, CertActionResult } from '../../types/service.types';
+import type { Service, CertActionResult, InboxEmail } from '../../types/service.types';
 import './ServiceDetailScreen.css';
 
 interface LogEntry {
@@ -43,6 +44,9 @@ export const ServiceDetailScreen: FC = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [lastResult, setLastResult] = useState<CertActionResult | null>(null);
+  const [inboxEmails, setInboxEmails] = useState<InboxEmail[] | null>(null);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const addLog = (message: string, type: LogEntry['type'] = 'info') => {
     setLogs((prev) => [
@@ -104,6 +108,38 @@ export const ServiceDetailScreen: FC = () => {
       notify('Failed to refresh status', 'error');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleReadInbox = async () => {
+    if (!id) return;
+    setInboxLoading(true);
+    try {
+      const result = await readInbox(id);
+      if (result.success) {
+        setInboxEmails(result.emails ?? []);
+        if ((result.count ?? 0) === 0) {
+          notify('No ZeroSSL verification emails found in the inbox', 'info');
+        } else {
+          notify(`Found ${result.count} verification email(s)`, 'success');
+        }
+      } else {
+        notify(result.error ?? 'Failed to read inbox', 'error');
+      }
+    } catch {
+      notify('Failed to connect to inbox', 'error');
+    } finally {
+      setInboxLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    } catch {
+      // fallback – select/copy manually
     }
   };
 
@@ -223,20 +259,37 @@ export const ServiceDetailScreen: FC = () => {
               )}
 
               {canVerify && service.verification_method === 'email' && (
-                <button
-                  className="btn-primary cert-action-btn"
-                  onClick={() => handleAction('Auto-Verify from Inbox', pollEmailVerification)}
-                  disabled={actionLoading}
-                  title="Connect to the configured IMAP inbox, find ZeroSSL verification emails, and click the links automatically"
-                >
-                  {actionLoading ? <span className="spinner" /> : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                      <polyline points="22,6 12,13 2,6"/>
-                    </svg>
-                  )}
-                  Auto-Verify from Inbox
-                </button>
+                <>
+                  <button
+                    className="btn-primary cert-action-btn"
+                    onClick={() => handleAction('Auto-Verify from Inbox', pollEmailVerification)}
+                    disabled={actionLoading}
+                    title="Connect to the configured IMAP inbox, find ZeroSSL verification emails, and click the links automatically"
+                  >
+                    {actionLoading ? <span className="spinner" /> : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                      </svg>
+                    )}
+                    Auto-Verify from Inbox
+                  </button>
+                  <button
+                    className="btn-secondary cert-action-btn"
+                    onClick={handleReadInbox}
+                    disabled={inboxLoading || actionLoading}
+                    title="Read the inbox and show verification links and DCV codes without clicking them"
+                  >
+                    {inboxLoading ? <span className="spinner" /> : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                        <line x1="12" y1="13" x2="12" y2="20"/>
+                      </svg>
+                    )}
+                    📋 Show Links & Codes
+                  </button>
+                </>
               )}
 
               {canInstall && (
@@ -301,6 +354,82 @@ export const ServiceDetailScreen: FC = () => {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Inbox preview panel */}
+          {inboxEmails !== null && (
+            <div className="card" style={{ marginTop: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ margin: 0 }}>📧 Verification Inbox</h3>
+                <button className="btn-ghost btn-sm" onClick={() => setInboxEmails(null)}>✕ Close</button>
+              </div>
+
+              {inboxEmails.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>
+                  No ZeroSSL verification emails found. The email may not have arrived yet — try again in a moment.
+                </p>
+              ) : (
+                <div className="inbox-emails">
+                  {inboxEmails.map((email, idx) => (
+                    <div key={email.uid} className="inbox-email-item">
+                      <div className="inbox-email-subject">
+                        <span className="inbox-email-num">#{idx + 1}</span>
+                        {email.subject || '(no subject)'}
+                      </div>
+
+                      {email.order_number && (
+                        <div className="inbox-field-row">
+                          <span className="inbox-field-label">Order #</span>
+                          <code className="inbox-field-value">{email.order_number}</code>
+                          <button
+                            className="btn-copy"
+                            onClick={() => copyToClipboard(email.order_number, `order-${email.uid}`)}
+                          >
+                            {copiedKey === `order-${email.uid}` ? '✓ Copied' : 'Copy'}
+                          </button>
+                        </div>
+                      )}
+
+                      {email.dcv_code && (
+                        <div className="inbox-field-row">
+                          <span className="inbox-field-label">DCV Code</span>
+                          <code className="inbox-field-value inbox-code-highlight">{email.dcv_code}</code>
+                          <button
+                            className="btn-copy"
+                            onClick={() => copyToClipboard(email.dcv_code, `dcv-${email.uid}`)}
+                          >
+                            {copiedKey === `dcv-${email.uid}` ? '✓ Copied' : 'Copy'}
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="inbox-links">
+                        <span className="inbox-field-label" style={{ marginBottom: 6, display: 'block' }}>Verification Link{email.links.length > 1 ? 's' : ''}</span>
+                        {email.links.map((url, li) => (
+                          <div key={li} className="inbox-link-row">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inbox-link"
+                              title={url}
+                            >
+                              🔗 Click to verify
+                            </a>
+                            <button
+                              className="btn-copy"
+                              onClick={() => copyToClipboard(url, `url-${email.uid}-${li}`)}
+                            >
+                              {copiedKey === `url-${email.uid}-${li}` ? '✓ Copied' : 'Copy URL'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

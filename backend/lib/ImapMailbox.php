@@ -36,6 +36,33 @@ class ImapMailbox
     // -----------------------------------------------------------------------
 
     /**
+     * Open the mailbox, find every unseen ZeroSSL verification email and
+     * return their parsed contents (links, DCV code, order number) WITHOUT
+     * clicking anything or marking emails as seen.
+     *
+     * Each item in the returned array represents one email:
+     *   uid          – IMAP message UID
+     *   subject      – decoded Subject header
+     *   links        – list of EnterDCVCode URLs found in the email
+     *   dcv_code     – DCV code extracted from the first link (if present)
+     *   order_number – order number extracted from the first link (if present)
+     *
+     * @return array<int, array{uid: int, subject: string, links: list<string>, dcv_code: string, order_number: string}>
+     * @throws RuntimeException when the IMAP extension is missing or the connection fails.
+     */
+    public function fetchVerificationEmails(): array
+    {
+        $this->requireImapExtension();
+        $connection = $this->openConnection();
+        try {
+            $emails = $this->readEmailData($connection);
+        } finally {
+            @imap_close($connection);
+        }
+        return $emails;
+    }
+
+    /**
      * Open the mailbox, find every unseen ZeroSSL verification email, click
      * the verification link inside each one, and mark the email as seen.
      *
@@ -131,6 +158,66 @@ class ImapMailbox
         }
 
         return '{' . $this->host . ':' . $this->port . $flags . '}' . $this->folder;
+    }
+
+    /**
+     * @param resource $connection
+     * @return array<int, array{uid: int, subject: string, links: list<string>, dcv_code: string, order_number: string}>
+     */
+    private function readEmailData($connection): array
+    {
+        $uids = @imap_search($connection, 'FROM "noreply@trust-provider.com"', SE_UID);
+
+        if (empty($uids)) {
+            return [];
+        }
+
+        $emails = [];
+
+        foreach ($uids as $uid) {
+            $msgNo = imap_msgno($connection, $uid);
+            if ($msgNo === 0) {
+                continue; // UID no longer exists in this session
+            }
+
+            $headerInfo = @imap_headerinfo($connection, $msgNo);
+            $subject = '';
+            if ($headerInfo && !empty($headerInfo->subject)) {
+                $decoded = imap_mime_header_decode($headerInfo->subject);
+                foreach ($decoded as $part) {
+                    $subject .= $part->text;
+                }
+            }
+
+            $body  = $this->fetchBody($connection, $uid);
+            $links = $this->extractVerificationLinks($body);
+
+            if (empty($links)) {
+                continue;
+            }
+
+            // Extract DCV code and order number from the first link's query string.
+            // ZeroSSL/trust-provider.com uses camelCase (dcvCode, orderNumber) but
+            // the casing may vary across API versions, so we check both forms.
+            $dcvCode     = '';
+            $orderNumber = '';
+            $parsedUrl   = parse_url($links[0]);
+            if (!empty($parsedUrl['query'])) {
+                parse_str($parsedUrl['query'], $params);
+                $dcvCode     = $params['dcvCode']     ?? $params['DcvCode']     ?? '';
+                $orderNumber = $params['orderNumber'] ?? $params['ordernumber'] ?? '';
+            }
+
+            $emails[] = [
+                'uid'          => $uid,
+                'subject'      => $subject,
+                'links'        => array_values($links),
+                'dcv_code'     => $dcvCode,
+                'order_number' => $orderNumber,
+            ];
+        }
+
+        return $emails;
     }
 
     /**

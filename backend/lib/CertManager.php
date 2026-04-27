@@ -104,13 +104,17 @@ class CertManager
     }
 
     /**
-     * Write the certificate components to three separate files.
+     * Write the certificate to two separate files: a fullchain file
+     * (leaf certificate + CA bundle concatenated) and a private key file.
+     *
+     * This is the "split files" mode where the server reads the chain from one
+     * file and the key from another (e.g. nginx `ssl_certificate` /
+     * `ssl_certificate_key`).
      *
      * @param string $certPem        Leaf certificate PEM.
      * @param string $caBundlePem    CA bundle PEM.
      * @param string $privateKeyPem  Private key PEM.
-     * @param string $certFilePath   Full path for the leaf certificate.
-     * @param string $caFilePath     Full path for the CA bundle.
+     * @param string $certFilePath   Full path for the fullchain file (cert + CA).
      * @param string $keyFilePath    Full path for the private key (written 0600).
      */
     public function installCertificateSplit(
@@ -118,10 +122,9 @@ class CertManager
         string $caBundlePem,
         string $privateKeyPem,
         string $certFilePath,
-        string $caFilePath,
         string $keyFilePath
     ): void {
-        foreach ([$certFilePath, $caFilePath, $keyFilePath] as $path) {
+        foreach ([$certFilePath, $keyFilePath] as $path) {
             $dir = dirname($path);
             if (!is_dir($dir)) {
                 if (!mkdir($dir, 0755, true)) {
@@ -130,8 +133,8 @@ class CertManager
             }
         }
 
-        $this->writeFile($certFilePath, rtrim($certPem) . "\n", 0644);
-        $this->writeFile($caFilePath,   rtrim($caBundlePem) . "\n", 0644);
+        $fullchain = rtrim($certPem) . "\n\n" . rtrim($caBundlePem) . "\n";
+        $this->writeFile($certFilePath, $fullchain, 0644);
         $this->writeFile($keyFilePath,  rtrim($privateKeyPem) . "\n", 0600);
     }
 

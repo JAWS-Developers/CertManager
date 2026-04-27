@@ -315,14 +315,13 @@ function actionInstall(array $service, CertManager $certManager): void
 
         // 3. Write files to disk
         if (!empty($service['split_files'])) {
-            $caPath  = $service['ca_path']  ?? '';
             $keyPath = $service['key_path'] ?? '';
-            if (empty($caPath) || empty($keyPath)) {
+            if (empty($keyPath)) {
                 http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'ca_path and key_path must be configured when split files mode is enabled']);
+                echo json_encode(['success' => false, 'error' => 'key_path must be configured when split files mode is enabled']);
                 return;
             }
-            $certManager->installCertificateSplit($certPem, $caBundlePem, $privateKey, $certPath, $caPath, $keyPath);
+            $certManager->installCertificateSplit($certPem, $caBundlePem, $privateKey, $certPath, $keyPath);
         } else {
             $certManager->installCertificate($certPem, $caBundlePem, $privateKey, $certPath);
         }

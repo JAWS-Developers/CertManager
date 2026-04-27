@@ -33,7 +33,6 @@ switch ($method) {
                 $webrootPath = $input['webroot_path'] ?? '';
                 $verMethod   = $input['verification_method'] ?? 'http';
                 $splitFiles  = !empty($input['split_files']);
-                $caPath      = $input['ca_path'] ?? '';
                 $keyPath     = $input['key_path'] ?? '';
 
                 $result = [
@@ -51,9 +50,6 @@ switch ($method) {
                     $result['webroot_path'] = validatePath($webrootPath, 'webroot');
                 }
                 if ($splitFiles) {
-                    if ($caPath !== '') {
-                        $result['ca_path'] = validatePath($caPath, 'cert');
-                    }
                     if ($keyPath !== '') {
                         $result['key_path'] = validatePath($keyPath, 'cert');
                     }
@@ -248,7 +244,7 @@ function collectPathErrors(array $input): array
     }
 
     if ($splitFiles) {
-        foreach (['ca_path', 'key_path'] as $field) {
+        foreach (['key_path'] as $field) {
             $path = $input[$field] ?? '';
             if ($path !== '') {
                 $check = validatePath($path, 'cert');

@@ -244,13 +244,11 @@ function collectPathErrors(array $input): array
     }
 
     if ($splitFiles) {
-        foreach (['key_path'] as $field) {
-            $path = $input[$field] ?? '';
-            if ($path !== '') {
-                $check = validatePath($path, 'cert');
-                if (!$check['valid']) {
-                    $errors[] = $check['error'];
-                }
+        $keyPath = $input['key_path'] ?? '';
+        if ($keyPath !== '') {
+            $check = validatePath($keyPath, 'cert');
+            if (!$check['valid']) {
+                $errors[] = $check['error'];
             }
         }
     }

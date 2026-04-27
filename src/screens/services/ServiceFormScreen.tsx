@@ -166,7 +166,7 @@ export const ServiceFormScreen: FC = () => {
       if (checkWebroot) setWebrootPathStatus({ state: 'checking' });
 
       try {
-        const result = await checkPaths(certPath, webrootPath, verMethod, splitFiles, '', keyPath);
+        const result = await checkPaths(certPath, webrootPath, verMethod, splitFiles, keyPath);
         if (checkCert) setCertPathStatus(statusFromResult(result.cert_path));
         if (checkKey) setKeyPathStatus(statusFromResult(result.key_path));
         if (checkWebroot) setWebrootPathStatus(statusFromResult(result.webroot_path));

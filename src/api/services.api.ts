@@ -51,6 +51,9 @@ export async function checkPaths(
   certPath: string,
   webrootPath: string,
   verificationMethod: string,
+  splitFiles?: boolean,
+  caPath?: string,
+  keyPath?: string,
 ): Promise<PathsValidationResult> {
   const res = await fetch(`${API_BASE}/services.php`, {
     method: 'POST',
@@ -60,6 +63,9 @@ export async function checkPaths(
       cert_path: certPath,
       webroot_path: webrootPath,
       verification_method: verificationMethod,
+      split_files: splitFiles ?? false,
+      ca_path: caPath ?? '',
+      key_path: keyPath ?? '',
     }),
   });
   return res.json();

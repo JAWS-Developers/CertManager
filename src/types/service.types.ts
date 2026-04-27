@@ -14,7 +14,10 @@ export interface Service {
   name: string;
   description: string;
   domains: string[];
+  split_files: boolean;
   cert_path: string;
+  ca_path: string;
+  key_path: string;
   webroot_path: string;
   restart_command: string;
   restart_ssh_host: string;
@@ -33,7 +36,10 @@ export interface ServiceFormData {
   name: string;
   description: string;
   domains: string[];
+  split_files: boolean;
   cert_path: string;
+  ca_path: string;
+  key_path: string;
   webroot_path: string;
   restart_command: string;
   restart_ssh_host: string;
@@ -93,5 +99,7 @@ export interface PathCheckResult {
 export interface PathsValidationResult {
   success: boolean;
   cert_path: PathCheckResult | null;
+  ca_path: PathCheckResult | null;
+  key_path: PathCheckResult | null;
   webroot_path: PathCheckResult | null;
 }

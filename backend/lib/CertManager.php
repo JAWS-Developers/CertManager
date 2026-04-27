@@ -104,6 +104,38 @@ class CertManager
     }
 
     /**
+     * Write the certificate components to three separate files.
+     *
+     * @param string $certPem        Leaf certificate PEM.
+     * @param string $caBundlePem    CA bundle PEM.
+     * @param string $privateKeyPem  Private key PEM.
+     * @param string $certFilePath   Full path for the leaf certificate.
+     * @param string $caFilePath     Full path for the CA bundle.
+     * @param string $keyFilePath    Full path for the private key (written 0600).
+     */
+    public function installCertificateSplit(
+        string $certPem,
+        string $caBundlePem,
+        string $privateKeyPem,
+        string $certFilePath,
+        string $caFilePath,
+        string $keyFilePath
+    ): void {
+        foreach ([$certFilePath, $caFilePath, $keyFilePath] as $path) {
+            $dir = dirname($path);
+            if (!is_dir($dir)) {
+                if (!mkdir($dir, 0755, true)) {
+                    throw new RuntimeException("Cannot create directory: {$dir}");
+                }
+            }
+        }
+
+        $this->writeFile($certFilePath, rtrim($certPem) . "\n", 0644);
+        $this->writeFile($caFilePath,   rtrim($caBundlePem) . "\n", 0644);
+        $this->writeFile($keyFilePath,  rtrim($privateKeyPem) . "\n", 0600);
+    }
+
+    /**
      * Create the HTTP file-based validation file at the web root.
      *
      * ZeroSSL expects: http://{domain}/.well-known/pki-validation/{filename}

@@ -10,7 +10,10 @@ const EMPTY_FORM: ServiceFormData = {
   name: '',
   description: '',
   domains: [],
+  split_files: false,
   cert_path: '',
+  ca_path: '',
+  key_path: '',
   webroot_path: '',
   restart_command: '',
   restart_ssh_host: '',
@@ -90,6 +93,8 @@ export const ServiceFormScreen: FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [certPathStatus, setCertPathStatus] = useState<PathStatus>(IDLE);
+  const [caPathStatus, setCaPathStatus] = useState<PathStatus>(IDLE);
+  const [keyPathStatus, setKeyPathStatus] = useState<PathStatus>(IDLE);
   const [webrootPathStatus, setWebrootPathStatus] = useState<PathStatus>(IDLE);
 
   // Track the last email value that was set automatically so we know if the
@@ -109,7 +114,10 @@ export const ServiceFormScreen: FC = () => {
           name: service.name,
           description: service.description,
           domains: service.domains,
+          split_files: service.split_files ?? false,
           cert_path: service.cert_path,
+          ca_path: service.ca_path ?? '',
+          key_path: service.key_path ?? '',
           webroot_path: service.webroot_path,
           restart_command: service.restart_command,
           restart_ssh_host: service.restart_ssh_host ?? '',
@@ -147,21 +155,29 @@ export const ServiceFormScreen: FC = () => {
    * Only checks non-empty fields; silently resets the other badge to idle.
    */
   const runPathCheck = useCallback(
-    async (certPath: string, webrootPath: string, verMethod: string) => {
+    async (certPath: string, caPath: string, keyPath: string, webrootPath: string, verMethod: string, splitFiles: boolean) => {
       const checkCert = certPath.trim() !== '';
+      const checkCa = splitFiles && caPath.trim() !== '';
+      const checkKey = splitFiles && keyPath.trim() !== '';
       const checkWebroot = webrootPath.trim() !== '' && verMethod === 'http';
 
-      if (!checkCert && !checkWebroot) return;
+      if (!checkCert && !checkCa && !checkKey && !checkWebroot) return;
 
       if (checkCert) setCertPathStatus({ state: 'checking' });
+      if (checkCa) setCaPathStatus({ state: 'checking' });
+      if (checkKey) setKeyPathStatus({ state: 'checking' });
       if (checkWebroot) setWebrootPathStatus({ state: 'checking' });
 
       try {
-        const result = await checkPaths(certPath, webrootPath, verMethod);
+        const result = await checkPaths(certPath, webrootPath, verMethod, splitFiles, caPath, keyPath);
         if (checkCert) setCertPathStatus(statusFromResult(result.cert_path));
+        if (checkCa) setCaPathStatus(statusFromResult(result.ca_path));
+        if (checkKey) setKeyPathStatus(statusFromResult(result.key_path));
         if (checkWebroot) setWebrootPathStatus(statusFromResult(result.webroot_path));
       } catch {
         if (checkCert) setCertPathStatus({ state: 'error', message: 'Could not verify path (server unreachable)' });
+        if (checkCa) setCaPathStatus({ state: 'error', message: 'Could not verify path (server unreachable)' });
+        if (checkKey) setKeyPathStatus({ state: 'error', message: 'Could not verify path (server unreachable)' });
         if (checkWebroot) setWebrootPathStatus({ state: 'error', message: 'Could not verify path (server unreachable)' });
       }
     },
@@ -170,15 +186,31 @@ export const ServiceFormScreen: FC = () => {
 
   const handleCertPathBlur = () => {
     if (form.cert_path.trim()) {
-      runPathCheck(form.cert_path, form.webroot_path, form.verification_method);
+      runPathCheck(form.cert_path, form.ca_path, form.key_path, form.webroot_path, form.verification_method, form.split_files);
     } else {
       setCertPathStatus(IDLE);
     }
   };
 
+  const handleCaPathBlur = () => {
+    if (form.ca_path.trim()) {
+      runPathCheck(form.cert_path, form.ca_path, form.key_path, form.webroot_path, form.verification_method, form.split_files);
+    } else {
+      setCaPathStatus(IDLE);
+    }
+  };
+
+  const handleKeyPathBlur = () => {
+    if (form.key_path.trim()) {
+      runPathCheck(form.cert_path, form.ca_path, form.key_path, form.webroot_path, form.verification_method, form.split_files);
+    } else {
+      setKeyPathStatus(IDLE);
+    }
+  };
+
   const handleWebrootPathBlur = () => {
     if (form.webroot_path.trim()) {
-      runPathCheck(form.cert_path, form.webroot_path, form.verification_method);
+      runPathCheck(form.cert_path, form.ca_path, form.key_path, form.webroot_path, form.verification_method, form.split_files);
     } else {
       setWebrootPathStatus(IDLE);
     }
@@ -189,6 +221,10 @@ export const ServiceFormScreen: FC = () => {
     if (!form.name.trim()) e.name = 'Service name is required';
     if (form.domains.length === 0) e.domains = 'At least one domain is required';
     if (!form.cert_path.trim()) e.cert_path = 'Certificate path is required';
+    if (form.split_files) {
+      if (!form.ca_path.trim()) e.ca_path = 'CA bundle path is required';
+      if (!form.key_path.trim()) e.key_path = 'Private key path is required';
+    }
     if (form.verification_method === 'http' && !form.webroot_path.trim()) {
       e.webroot_path = 'Webroot path is required for HTTP verification';
     }
@@ -198,6 +234,12 @@ export const ServiceFormScreen: FC = () => {
     // Block submit if we know a path is invalid
     if (certPathStatus.state === 'error') {
       e.cert_path = certPathStatus.message ?? 'Certificate path is invalid';
+    }
+    if (form.split_files && caPathStatus.state === 'error') {
+      e.ca_path = caPathStatus.message ?? 'CA bundle path is invalid';
+    }
+    if (form.split_files && keyPathStatus.state === 'error') {
+      e.key_path = keyPathStatus.message ?? 'Private key path is invalid';
     }
     if (webrootPathStatus.state === 'error') {
       e.webroot_path = webrootPathStatus.message ?? 'Webroot path is invalid';
@@ -232,8 +274,15 @@ export const ServiceFormScreen: FC = () => {
     if (errors[key]) setErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
     // Reset path status when field changes
     if (key === 'cert_path') setCertPathStatus(IDLE);
+    if (key === 'ca_path') setCaPathStatus(IDLE);
+    if (key === 'key_path') setKeyPathStatus(IDLE);
     if (key === 'webroot_path') setWebrootPathStatus(IDLE);
     if (key === 'verification_method') setWebrootPathStatus(IDLE);
+    // When toggling split_files off, reset the extra statuses
+    if (key === 'split_files' && !value) {
+      setCaPathStatus(IDLE);
+      setKeyPathStatus(IDLE);
+    }
   };
 
   if (loading) {
@@ -297,25 +346,102 @@ export const ServiceFormScreen: FC = () => {
         {/* Certificate Settings */}
         <div className="card form-card">
           <h3 className="form-section-title">Certificate Settings</h3>
+
+          {/* Split files toggle */}
           <div className="form-group">
-            <div className="path-label-row">
-              <label htmlFor="cert_path">Certificate File Path *</label>
-              <PathStatusIcon status={certPathStatus} />
-            </div>
-            <input
-              id="cert_path"
-              type="text"
-              value={form.cert_path}
-              onChange={(e) => set('cert_path', e.target.value)}
-              onBlur={handleCertPathBlur}
-              placeholder="/etc/nginx/ssl/mysite.pem"
-              className={certPathStatus.state === 'error' ? 'input-error' : certPathStatus.state === 'ok' ? 'input-ok' : ''}
-            />
+            <label className="split-files-toggle">
+              <input
+                type="checkbox"
+                checked={form.split_files}
+                onChange={(e) => set('split_files', e.target.checked)}
+              />
+              <span>Use separate files for certificate, CA bundle and private key</span>
+            </label>
             <span className="field-hint">
-              Full path to the certificate file (cert + chain + key combined into one PEM). The file will be created or overwritten.
+              When unchecked, all three are written as a single combined PEM file.
+              When checked, each is written to its own path.
             </span>
-            {errors.cert_path && <span className="field-error">{errors.cert_path}</span>}
           </div>
+
+          {!form.split_files ? (
+            /* ── Combined PEM mode ─────────────────────────────── */
+            <div className="form-group">
+              <div className="path-label-row">
+                <label htmlFor="cert_path">Certificate File Path *</label>
+                <PathStatusIcon status={certPathStatus} />
+              </div>
+              <input
+                id="cert_path"
+                type="text"
+                value={form.cert_path}
+                onChange={(e) => set('cert_path', e.target.value)}
+                onBlur={handleCertPathBlur}
+                placeholder="/etc/nginx/ssl/mysite.pem"
+                className={certPathStatus.state === 'error' ? 'input-error' : certPathStatus.state === 'ok' ? 'input-ok' : ''}
+              />
+              <span className="field-hint">
+                Full path to the certificate file (cert + chain + key combined into one PEM). The file will be created or overwritten.
+              </span>
+              {errors.cert_path && <span className="field-error">{errors.cert_path}</span>}
+            </div>
+          ) : (
+            /* ── Split files mode ──────────────────────────────── */
+            <>
+              <div className="form-group">
+                <div className="path-label-row">
+                  <label htmlFor="cert_path">Certificate File *</label>
+                  <PathStatusIcon status={certPathStatus} />
+                </div>
+                <input
+                  id="cert_path"
+                  type="text"
+                  value={form.cert_path}
+                  onChange={(e) => set('cert_path', e.target.value)}
+                  onBlur={handleCertPathBlur}
+                  placeholder="/etc/nginx/ssl/cert.pem"
+                  className={certPathStatus.state === 'error' ? 'input-error' : certPathStatus.state === 'ok' ? 'input-ok' : ''}
+                />
+                <span className="field-hint">Path to the leaf certificate (certificate.crt).</span>
+                {errors.cert_path && <span className="field-error">{errors.cert_path}</span>}
+              </div>
+
+              <div className="form-group">
+                <div className="path-label-row">
+                  <label htmlFor="ca_path">CA Bundle File *</label>
+                  <PathStatusIcon status={caPathStatus} />
+                </div>
+                <input
+                  id="ca_path"
+                  type="text"
+                  value={form.ca_path}
+                  onChange={(e) => set('ca_path', e.target.value)}
+                  onBlur={handleCaPathBlur}
+                  placeholder="/etc/nginx/ssl/ca.pem"
+                  className={caPathStatus.state === 'error' ? 'input-error' : caPathStatus.state === 'ok' ? 'input-ok' : ''}
+                />
+                <span className="field-hint">Path to the CA / intermediate chain (ca_bundle.crt).</span>
+                {errors.ca_path && <span className="field-error">{errors.ca_path}</span>}
+              </div>
+
+              <div className="form-group">
+                <div className="path-label-row">
+                  <label htmlFor="key_path">Private Key File *</label>
+                  <PathStatusIcon status={keyPathStatus} />
+                </div>
+                <input
+                  id="key_path"
+                  type="text"
+                  value={form.key_path}
+                  onChange={(e) => set('key_path', e.target.value)}
+                  onBlur={handleKeyPathBlur}
+                  placeholder="/etc/nginx/ssl/privkey.pem"
+                  className={keyPathStatus.state === 'error' ? 'input-error' : keyPathStatus.state === 'ok' ? 'input-ok' : ''}
+                />
+                <span className="field-hint">Path to the private key file (stored with 0600 permissions).</span>
+                {errors.key_path && <span className="field-error">{errors.key_path}</span>}
+              </div>
+            </>
+          )}
 
           <div className="form-group">
             <label htmlFor="restart_command">Restart Command</label>

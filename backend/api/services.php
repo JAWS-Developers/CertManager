@@ -29,17 +29,34 @@ switch ($method) {
 
         switch ($action) {
             case 'validate_paths':
-                $certPath   = $input['cert_path'] ?? '';
+                $certPath    = $input['cert_path'] ?? '';
                 $webrootPath = $input['webroot_path'] ?? '';
-                $verMethod  = $input['verification_method'] ?? 'http';
+                $verMethod   = $input['verification_method'] ?? 'http';
+                $splitFiles  = !empty($input['split_files']);
+                $caPath      = $input['ca_path'] ?? '';
+                $keyPath     = $input['key_path'] ?? '';
 
-                $result = ['success' => true, 'cert_path' => null, 'webroot_path' => null];
+                $result = [
+                    'success'      => true,
+                    'cert_path'    => null,
+                    'ca_path'      => null,
+                    'key_path'     => null,
+                    'webroot_path' => null,
+                ];
 
                 if ($certPath !== '') {
                     $result['cert_path'] = validatePath($certPath, 'cert');
                 }
                 if ($webrootPath !== '' && $verMethod === 'http') {
                     $result['webroot_path'] = validatePath($webrootPath, 'webroot');
+                }
+                if ($splitFiles) {
+                    if ($caPath !== '') {
+                        $result['ca_path'] = validatePath($caPath, 'cert');
+                    }
+                    if ($keyPath !== '') {
+                        $result['key_path'] = validatePath($keyPath, 'cert');
+                    }
                 }
 
                 echo json_encode($result);
@@ -217,15 +234,28 @@ function validatePath(string $path, string $type = 'cert'): array
  */
 function collectPathErrors(array $input): array
 {
-    $errors    = [];
-    $certPath  = $input['cert_path'] ?? '';
-    $webroot   = $input['webroot_path'] ?? '';
-    $verMethod = $input['verification_method'] ?? 'http';
+    $errors     = [];
+    $certPath   = $input['cert_path'] ?? '';
+    $webroot    = $input['webroot_path'] ?? '';
+    $verMethod  = $input['verification_method'] ?? 'http';
+    $splitFiles = !empty($input['split_files']);
 
     if ($certPath !== '') {
         $check = validatePath($certPath, 'cert');
         if (!$check['valid']) {
             $errors[] = $check['error'];
+        }
+    }
+
+    if ($splitFiles) {
+        foreach (['ca_path', 'key_path'] as $field) {
+            $path = $input[$field] ?? '';
+            if ($path !== '') {
+                $check = validatePath($path, 'cert');
+                if (!$check['valid']) {
+                    $errors[] = $check['error'];
+                }
+            }
         }
     }
 

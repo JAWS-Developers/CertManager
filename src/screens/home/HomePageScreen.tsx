@@ -2,12 +2,25 @@ import "./HomePageScreen.css"
 import { FC, useState } from "react";
 
 
+type CertConfig = {
+    separateFiles: boolean;
+    pemPath: string;
+    certPath: string;
+    caPath: string;
+    keyPath: string;
+};
+
 export const HomePageScreen: FC = () => {
-    const [separateFiles, setSeparateFiles] = useState(false);
-    const [pemPath, setPemPath] = useState("");
-    const [certPath, setCertPath] = useState("");
-    const [caPath, setCaPath] = useState("");
-    const [keyPath, setKeyPath] = useState("");
+    const [config, setConfig] = useState<CertConfig>({
+        separateFiles: false,
+        pemPath: "",
+        certPath: "",
+        caPath: "",
+        keyPath: "",
+    });
+
+    const updateConfig = (field: keyof CertConfig, value: string | boolean) =>
+        setConfig(prev => ({ ...prev, [field]: value }));
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -21,22 +34,22 @@ export const HomePageScreen: FC = () => {
                 <label className="cert-toggle-label">
                     <input
                         type="checkbox"
-                        checked={separateFiles}
-                        onChange={e => setSeparateFiles(e.target.checked)}
+                        checked={config.separateFiles}
+                        onChange={e => updateConfig("separateFiles", e.target.checked)}
                         className="cert-toggle-checkbox"
                     />
                     <span>Usa file separati (cert, CA, key)</span>
                 </label>
 
-                {!separateFiles ? (
+                {!config.separateFiles ? (
                     <div className="cert-form-group">
                         <label htmlFor="pem-path">File PEM</label>
                         <input
                             id="pem-path"
                             type="text"
                             placeholder="/path/to/certificate.pem"
-                            value={pemPath}
-                            onChange={e => setPemPath(e.target.value)}
+                            value={config.pemPath}
+                            onChange={e => updateConfig("pemPath", e.target.value)}
                             className="cert-form-input"
                         />
                     </div>
@@ -48,8 +61,8 @@ export const HomePageScreen: FC = () => {
                                 id="cert-path"
                                 type="text"
                                 placeholder="/path/to/cert.crt"
-                                value={certPath}
-                                onChange={e => setCertPath(e.target.value)}
+                                value={config.certPath}
+                                onChange={e => updateConfig("certPath", e.target.value)}
                                 className="cert-form-input"
                             />
                         </div>
@@ -59,8 +72,8 @@ export const HomePageScreen: FC = () => {
                                 id="ca-path"
                                 type="text"
                                 placeholder="/path/to/ca.crt"
-                                value={caPath}
-                                onChange={e => setCaPath(e.target.value)}
+                                value={config.caPath}
+                                onChange={e => updateConfig("caPath", e.target.value)}
                                 className="cert-form-input"
                             />
                         </div>
@@ -70,8 +83,8 @@ export const HomePageScreen: FC = () => {
                                 id="key-path"
                                 type="text"
                                 placeholder="/path/to/private.key"
-                                value={keyPath}
-                                onChange={e => setKeyPath(e.target.value)}
+                                value={config.keyPath}
+                                onChange={e => updateConfig("keyPath", e.target.value)}
                                 className="cert-form-input"
                             />
                         </div>

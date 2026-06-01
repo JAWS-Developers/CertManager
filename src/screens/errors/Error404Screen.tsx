@@ -1,4 +1,4 @@
-import { FC, useEffect, useState } from "react";
+import { FC } from "react";
 
 
 export const Error404Screen: FC = () => {
@@ -6,7 +6,7 @@ export const Error404Screen: FC = () => {
 
     return (
         <>
-            ciao 2
+            404 Not Found
         </>
     )
 }

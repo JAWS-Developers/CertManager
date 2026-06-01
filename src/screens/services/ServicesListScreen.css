@@ -1,10 +1,8 @@
-.dashboard {}
-
 .page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   gap: 16px;
   flex-wrap: wrap;
 }
@@ -28,38 +26,12 @@
   text-decoration: none;
   transition: background 0.15s;
   flex-shrink: 0;
+  border: none;
+  cursor: pointer;
 }
 .btn-new-service:hover {
   background: var(--accent-blue-dark);
   text-decoration: none;
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-@media (max-width: 900px) {
-  .stat-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-.stat-card {
-  text-align: center;
-  padding: 24px 16px;
-}
-
-.stat-value {
-  font-size: 36px;
-  font-weight: 700;
-  line-height: 1;
-  margin-bottom: 8px;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 500;
 }
 
 .services-table {
@@ -74,12 +46,12 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .services-table td {
-  padding: 12px 12px;
+  padding: 14px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -89,7 +61,7 @@
 }
 
 .services-table tbody tr:hover td {
-  background: var(--bg-hover);
+  background: rgba(255,255,255,0.02);
 }
 
 .service-name {
@@ -106,5 +78,24 @@
 .domains-list {
   display: flex;
   flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cert-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.action-buttons {
+  display: flex;
   gap: 4px;
 }
